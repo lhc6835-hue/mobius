@@ -4881,7 +4881,7 @@ function raceResults() {
 const RW = 11, RDS = 1.5; // deck half-width: room for three cars abreast
 const NOANOM = new Uint8Array(N * N); // tiles near the ribbon: no far-off anomalies there
 const RIB_KO = { loop: '루프', helix: '나선 회전', cork: '코크스크루', twist: '트위스트', invert: '천장 주행', roll2: '더블 롤', arch: '교차 빌딩' };
-const RIB_NEED = { loop: 120, helix: 40, cork: 150, twist: 80, invert: 240, roll2: 190, arch: 50 };
+const RIB_NEED = { loop: 150, helix: 40, cork: 150, twist: 80, invert: 240, roll2: 190, arch: 50 };
 const ease3 = t => { t = clamp(t, 0, 1); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
 const bump01 = (t, e) => smooth(0, e, t) * (1 - smooth(1 - e, 1, t));
 function buildRibbon(tr, rt) {
@@ -4953,9 +4953,9 @@ function buildRibbon(tr, rt) {
       const dir = R() < 0.5 ? 1 : -1;
       featK.push({ k: kc - half, type });
       if (type === 'loop') {
-        const LS = RW + 2; // entry and exit lanes of the loop must not overlap
-        for (let k = kc - 30; k < kc; k++) W[k] = -LS * ease3((k - (kc - 30)) / 30);
-        for (let k = kc; k < kc + 30; k++) W[k] = LS * (1 - ease3((k - kc) / 30));
+        const LS = RW + 3; // entry and exit lanes of the loop must not overlap
+        for (let k = kc - 45; k < kc; k++) W[k] = -LS * ease3((k - (kc - 45)) / 45);
+        for (let k = kc; k < kc + 45; k++) W[k] = LS * (1 - ease3((k - kc) / 45));
         ins[kc] = { type, R: 26, LS };
       } else if (type === 'helix') {
         ins[kc] = { type, R: 48, Hh, side: dir };
@@ -4975,7 +4975,7 @@ function buildRibbon(tr, rt) {
     cur = end;
   }
   // ---- 3. centreline samples (loops / helices are inserted, they add length without moving the base path) ----
-  const P = [], UP = [], NB = [], RL = [], CRr = [], KB = [];
+  const P = [], PB = [], UP = [], NB = [], RL = [], CRr = [], KB = [];
   for (let k = 0; k < nb; k++) {
     const a = bp[(k - 1 + nb) % nb], b = bp[(k + 1) % nb]; const dl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     const t0 = [(b[0] - a[0]) / dl, 0, (b[1] - a[1]) / dl], s0 = [t0[2], 0, -t0[0]];
@@ -4987,30 +4987,31 @@ function buildRibbon(tr, rt) {
         for (let j = 1; j < n; j++) {
           const f = j / n * TAU, w = lerp(-iz.LS, iz.LS, ease3(j / n)), sf = Math.sin(f) * iz.R;
           P.push([B[0] + t0[0] * sf + s0[0] * w, B[1] + iz.R * (1 - Math.cos(f)), B[2] + t0[2] * sf + s0[2] * w]);
-          UP.push([-t0[0] * Math.sin(f), Math.cos(f), -t0[2] * Math.sin(f)]); NB.push(1); RL.push(0); CRr.push(0); KB.push(k);
+          PB.push(P[P.length - 1]); UP.push([-t0[0] * Math.sin(f), Math.cos(f), -t0[2] * Math.sin(f)]); NB.push(1); RL.push(0); CRr.push(0); KB.push(k);
         }
       } else {
         const n = Math.round(Math.hypot(TAU * iz.R, iz.Hh) / RDS);
         for (let j = 1; j < n; j++) {
           const f = j / n * TAU, sf = Math.sin(f) * iz.R, sd = (1 - Math.cos(f)) * iz.R * iz.side;
           P.push([B[0] + t0[0] * sf + s0[0] * sd, B[1] + iz.Hh * ease3(j / n), B[2] + t0[2] * sf + s0[2] * sd]);
-          UP.push(null); NB.push(0); RL.push(0); CRr.push(0); KB.push(k);
+          PB.push(P[P.length - 1]); UP.push(null); NB.push(0); RL.push(0); CRr.push(0); KB.push(k);
         }
       }
     }
-    P.push([bp[k][0] + s0[0] * W[k], H[k], bp[k][1] + s0[2] * W[k]]); UP.push(null); NB.push(0); RL.push(ROLL[k]); CRr.push(CR[k]); KB.push(k);
+    P.push([bp[k][0] + s0[0] * W[k], H[k], bp[k][1] + s0[2] * W[k]]); PB.push([bp[k][0], H[k], bp[k][1]]); UP.push(null); NB.push(0); RL.push(ROLL[k]); CRr.push(CR[k]); KB.push(k);
   }
   const n = P.length;
   const tangOf = (arr, i) => vnorm(vsub(arr[(i + 1) % n], arr[(i - 1 + n) % n]));
   let Tn = P.map((_, i) => tangOf(P, i));
-  // banking from horizontal curvature (smoothed)
+  // banking from the horizontal curvature of the route itself (the loop side-step must not bank the deck)
+  const TB = PB.map((_, i) => tangOf(PB, i));
   const bank = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     if (NB[i]) continue;
-    const a = Tn[(i - 3 + n) % n], b = Tn[(i + 3) % n]; const al = Math.hypot(a[0], a[2]), bl = Math.hypot(b[0], b[2]); if (al < 0.3 || bl < 0.3) continue;
+    const a = TB[(i - 3 + n) % n], b = TB[(i + 3) % n]; const al = Math.hypot(a[0], a[2]), bl = Math.hypot(b[0], b[2]); if (al < 0.3 || bl < 0.3) continue;
     const ax = a[0] / al, az = a[2] / al, bx = b[0] / bl, bz = b[2] / bl;
     const ang = Math.atan2(az * bx - ax * bz, ax * bx + az * bz);
-    const pa = P[(i - 3 + n) % n], pb = P[(i + 3) % n]; const dist = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]) || 1;
+    const pa = PB[(i - 3 + n) % n], pb = PB[(i + 3) % n]; const dist = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]) || 1;
     bank[i] = clamp(ang / dist * 34, -1.1, 1.1);
   }
   const bs = new Float32Array(n);
@@ -5024,6 +5025,18 @@ function buildRibbon(tr, rt) {
     const nbk = vnorm(vadd(vscale(n0, Math.cos(b)), vscale(s0, Math.sin(b))));
     const r = RL[i]; const nr = vnorm(vadd(vscale(nbk, Math.cos(r)), vscale(vcross(t, nbk), Math.sin(r))));
     P2.push(vadd(P[i], vscale(vsub(nbk, nr), CRr[i]))); Nr.push(nr);
+  }
+  // lift the deck wherever banking / rolling would push an edge (or a car hanging under an inverted deck) into the city
+  { const need = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const nr = Nr[i], sy = vcross(nr, Tn[i])[1];
+      const low = Math.min(P2[i][1] - RW * Math.abs(sy), nr[1] < 0.3 ? P2[i][1] + nr[1] * 2.6 - RW * Math.abs(sy) * 0.3 : 1e9);
+      need[i] = Math.max(0, 1.2 - low);
+    }
+    const W2 = 26, mx = new Float32Array(n), lift = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let m = 0; for (let j = -W2; j <= W2; j++) m = Math.max(m, need[(i + j + n) % n]); mx[i] = m; }
+    for (let i = 0; i < n; i++) { let a = 0; for (let j = -W2; j <= W2; j++) a += mx[(i + j + n) % n]; lift[i] = a / (2 * W2 + 1); }
+    for (let i = 0; i < n; i++) P2[i][1] += lift[i];
   }
   Tn = P2.map((_, i) => tangOf(P2, i));
   const Pf = new Float32Array(n * 3), Tf = new Float32Array(n * 3), Nf = new Float32Array(n * 3), Sf = new Float32Array(n * 3), KG = new Float32Array(n), cum = new Float64Array(n + 1);
