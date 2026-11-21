@@ -618,6 +618,16 @@ void bendW(inout vec3 p, inout vec3 n, vec3 cam){
   p=vec3(cam.x+A.x*s+B.x*q, y, cam.z+A.y*s+B.y*q);
   n=vec3(A.x*na+B.x*nb, ny, A.y*na+B.y*nb);
 }`;
+const FOLD_GLSL = `
+const vec4 TF[5]=vec4[5](vec4(0.,5.,9.,34.),vec4(0.,20.,24.,-28.),vec4(1.,3.,8.,-30.),vec4(1.,13.,18.,38.),vec4(1.,24.,28.,30.));
+float fss(float t){ t=clamp(t,-1.,1.); return 0.5+0.75*t-0.25*t*t*t; }
+float fssd(float t){ return abs(t)>=1.?0.:0.75*(1.-t*t); }
+float wrapDg(float d){ return d-floor(d/3840.+0.5)*3840.; }
+vec3 foldHG(vec2 q){ vec3 r=vec3(0.);
+  for(int k=0;k<5;k++){ vec4 f=TF[k]; float pp=f.x<0.5?q.x:q.y; float d0=wrapDg(pp-(f.y*120.+10.))/6., d1=wrapDg(pp-(f.z*120.+10.))/6.;
+    float s0=fss(d0), s1=fss(d1); r.x+=f.w*s0*(1.-s1); float g=f.w*(fssd(d0)*(1.-s1)-s0*fssd(d1))/6.; if(f.x<0.5) r.y+=g; else r.z+=g; }
+  return r; }
+`;
 const WORLD_VS = `#version 300 es
 precision highp float; precision highp int;
 layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec4 aCol;
@@ -647,9 +657,10 @@ void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float c
 }
 ${BEND_GLSL}
 const float WK=6.28318531/3840.;
-float warpH(vec2 q){ return uWarpA*(70.*sin(WK*2.*q.x+0.7)*cos(WK*q.y+0.3)+35.*sin(WK*(3.*q.x+2.*q.y)+2.1)+25.*sin(WK*(-q.x+4.*q.y)+1.3)); }
+${FOLD_GLSL}
+float warpH(vec2 q){ return uWarpA*(70.*sin(WK*2.*q.x+0.7)*cos(WK*q.y+0.3)+35.*sin(WK*(3.*q.x+2.*q.y)+2.1)+25.*sin(WK*(-q.x+4.*q.y)+1.3)+foldHG(q).x); }
 vec2 warpG(vec2 q){ float a=WK*2.*q.x+0.7, b=WK*q.y+0.3, c=WK*(3.*q.x+2.*q.y)+2.1, e=WK*(-q.x+4.*q.y)+1.3;
-  return uWarpA*WK*vec2(140.*cos(a)*cos(b)+105.*cos(c)-25.*cos(e), -70.*sin(a)*sin(b)+70.*cos(c)+100.*cos(e)); }
+  return uWarpA*(WK*vec2(140.*cos(a)*cos(b)+105.*cos(c)-25.*cos(e), -70.*sin(a)*sin(b)+70.*cos(c)+100.*cos(e))+foldHG(q).yz); }
 out vec3 vW; out vec3 vN; out vec4 vCol; out vec4 vUv; out vec4 vTile; out vec3 vLP; out float vRt; out float vFlat;
 void main(){
   vec3 p=aPos, n=aNor; vec4 ext=aExt; vRt=0.;
@@ -731,8 +742,9 @@ uniform vec3 uSunDir, uSunCol, uFogCol; uniform float uFogDen;
 uniform vec3 uHeadPos, uHeadDir; uniform float uHeadOn;
 uniform vec4 uPL[12]; uniform vec4 uPLc[12];
 uniform float uNight, uFlipFade, uPhase;
-uniform vec3 uTint; uniform int uDbg; uniform float uRace;
+uniform vec3 uTint; uniform int uDbg; uniform float uRace; uniform float uWarpA;
 ${SKY_FN}
+${FOLD_GLSL}
 out vec4 o;
 float ih(vec2 c, float s){ uint h=uint(int(c.x)+40000)*1664525u ^ (uint(int(c.y)+40000)*22695477u) ^ (uint(int(s))*2654435761u); h^=h>>15; h*=2246822519u; h^=h>>13; h*=3266489917u; h^=h>>16; return float(h&0xffffffu)/16777215.; }
 void main(){
@@ -781,6 +793,13 @@ void main(){
     refl=mix(0.15,1.,puddle);
     spec=mix(0.3,1.2,puddle);
     N=normalize(mix(N,vec3(0,1,0),puddle*0.9));
+    if(mat==1 && uWarpA!=0.){ // street folds: neon seams at the foot and the crest, ribs drifting up the wall
+      float fe=0.;
+      for(int k=0;k<5;k++){ vec4 f=TF[k]; float pp=f.x<0.5?vLP.x:vLP.z;
+        for(int e=0;e<2;e++){ float d=wrapDg(pp-((e==0?f.y:f.z)*120.+10.))/6., ad=abs(d);
+          if(ad<1.4){ fe+=exp(-(ad-1.)*(ad-1.)*70.)*1.6; fe+=step(ad,0.95)*smoothstep(0.82,1.,abs(fract(d*2.5-uTime*0.25*sign(f.w))-0.5)*2.)*0.55; } } }
+      emi+=vec3(1.,.32,.85)*fe*uWarpA;
+    }
   } else if(mat==2){ // facade
     vec2 uv=vUv.xy; float st=floor(vUv.z+0.5); float sd=floor(vUv.w*10.+0.5);
     vec2 ws = st<0.5? vec2(1.7,3.8) : st<1.5? vec2(3.2,3.6) : st<2.5? vec2(2.2,3.1) : vec2(7.,3.8);
@@ -1797,17 +1816,17 @@ function genCity() {
       if (iz % P === P - 1) mb.quad([x1, 0, z1], [x0, 0, z1], [x0, y, z1], [x1, y, z1]);
     } else {
       mb.m = 1; mb.c = [1, 1, 1];
-      if (ty === 2) { mb.uz = 1; mb.quad([x0, 0, z0], [x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [[0, 0], [0, 1], [1, 1], [1, 0]]); }
-      else {
-        mb.uz = hash2(ix, iz) > 0.55 ? 2 : 0;
-        if (ty === 0) mb.quad([x0, 0, z0], [x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [[0, 0], [0, 1], [1, 1], [1, 0]]);
-        else mb.quad([x0, 0, z0], [x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [[0, 0], [1, 0], [1, 1], [0, 1]]);
+      mb.uz = ty === 2 ? 1 : hash2(ix, iz) > 0.55 ? 2 : 0;
+      const nx = FOLD_COL.has(ix) ? 10 : 1, nz = FOLD_ROW.has(iz) ? 10 : 1, swap = ty === 1; // roadX tiles use the atlas rotated
+      for (let a = 0; a < nx; a++) for (let c = 0; c < nz; c++) {
+        const u0 = a / nx, u1 = (a + 1) / nx, v0 = c / nz, v1 = (c + 1) / nz, uv = (u, v) => swap ? [v, u] : [u, v];
+        mb.quad([x0 + u0 * T, 0, z0 + v0 * T], [x0 + u0 * T, 0, z0 + v1 * T], [x0 + u1 * T, 0, z0 + v1 * T], [x0 + u1 * T, 0, z0 + v0 * T], [uv(u0, v0), uv(u0, v1), uv(u1, v1), uv(u1, v0)]);
       }
       mb.uz = 0;
     }
-    // slab skirt (visible only when tiles move)
+    // slab skirt (visible only when tiles move; fold streets skip it, its straight edges would cut through the wall curve)
     mb.m = 7; mb.c = [1, 1, 1]; const yb = -7;
-    mb.quad([x0, yb, z0], [x0, yb, z1], [x0, y, z1], [x0, y, z0]); mb.quad([x1, yb, z1], [x1, yb, z0], [x1, y, z0], [x1, y, z1]);
+    if (!FOLD_COL.has(ix) && !FOLD_ROW.has(iz)) mb.quad([x0, yb, z0], [x0, yb, z1], [x0, y, z1], [x0, y, z0]); mb.quad([x1, yb, z1], [x1, yb, z0], [x1, y, z0], [x1, y, z1]);
     mb.quad([x1, yb, z0], [x0, yb, z0], [x0, y, z0], [x1, y, z0]); mb.quad([x0, yb, z1], [x1, yb, z1], [x1, y, z1], [x0, y, z1]);
     mb.quad([x0, yb, z1], [x0, yb, z0], [x1, yb, z0], [x1, yb, z1]);
     mb.e = [-1, -1, 0, 0];
@@ -2135,15 +2154,31 @@ function buildSkyShard(seed) {
 // periodic in WS so the wrapped world stays seamless; same formula as warpH/warpG in WORLD_VS
 const WARP = { a: 1 };
 const WK = TAU / 3840;
+// street folds: whole streets bend up into near-vertical walls, lifting (or sinking) a band of the city between two of them.
+// ax 0: walls run along z at road columns a, b (x = 120k + 10); ax 1: walls run along x at road rows a, b. Same table as TF in WORLD_VS.
+const TFOLDS = [{ ax: 0, a: 5, b: 9, H: 34 }, { ax: 0, a: 20, b: 24, H: -28 }, { ax: 1, a: 3, b: 8, H: -30 }, { ax: 1, a: 13, b: 18, H: 38 }, { ax: 1, a: 24, b: 28, H: 30 }];
+const FW = 6; // half-width of a wall: H 34 over 12 m -> about 76 deg at its steepest
+const fss = t => t <= -1 ? 0 : t >= 1 ? 1 : 0.5 + 0.75 * t - 0.25 * t * t * t, fssd = t => Math.abs(t) >= 1 ? 0 : 0.75 * (1 - t * t);
+const FOLD_COL = new Set(), FOLD_ROW = new Set(); for (const f of TFOLDS) for (const k of [f.a, f.b]) (f.ax ? FOLD_ROW : FOLD_COL).add(k * P);
+function foldHG(x, z) {
+  let h = 0, gx = 0, gz = 0;
+  for (const f of TFOLDS) {
+    const p = f.ax ? z : x, d0 = wrapD(p - (f.a * 120 + 10)) / FW, d1 = wrapD(p - (f.b * 120 + 10)) / FW;
+    const s0 = fss(d0), s1 = fss(d1); h += f.H * s0 * (1 - s1);
+    const g = f.H * (fssd(d0) * (1 - s1) - s0 * fssd(d1)) / FW; if (f.ax) gz += g; else gx += g;
+  }
+  return [h, gx, gz];
+}
 function warpH(x, z) {
   if (!WARP.a) return 0;
-  return WARP.a * (70 * Math.sin(WK * 2 * x + 0.7) * Math.cos(WK * z + 0.3) + 35 * Math.sin(WK * (3 * x + 2 * z) + 2.1) + 25 * Math.sin(WK * (-x + 4 * z) + 1.3));
+  return WARP.a * (70 * Math.sin(WK * 2 * x + 0.7) * Math.cos(WK * z + 0.3) + 35 * Math.sin(WK * (3 * x + 2 * z) + 2.1) + 25 * Math.sin(WK * (-x + 4 * z) + 1.3) + foldHG(x, z)[0]);
 }
 function warpG(x, z) {
   if (!WARP.a) return [0, 0];
-  const a = WK * 2 * x + 0.7, b = WK * z + 0.3, c = WK * (3 * x + 2 * z) + 2.1, e = WK * (-x + 4 * z) + 1.3;
-  return [WARP.a * WK * (140 * Math.cos(a) * Math.cos(b) + 105 * Math.cos(c) - 25 * Math.cos(e)), WARP.a * WK * (-70 * Math.sin(a) * Math.sin(b) + 70 * Math.cos(c) + 100 * Math.cos(e))];
+  const a = WK * 2 * x + 0.7, b = WK * z + 0.3, c = WK * (3 * x + 2 * z) + 2.1, e = WK * (-x + 4 * z) + 1.3, fg = foldHG(x, z);
+  return [WARP.a * (WK * (140 * Math.cos(a) * Math.cos(b) + 105 * Math.cos(c) - 25 * Math.cos(e)) + fg[1]), WARP.a * (WK * (-70 * Math.sin(a) * Math.sin(b) + 70 * Math.cos(c) + 100 * Math.cos(e)) + fg[2])];
 }
+const onFoldWall = (x, z) => { if (!WARP.a) return false; const g = foldHG(x, z); return Math.hypot(g[1], g[2]) > 0.4; };
 // ================= WORLD PHYSICS =================
 const STEP = 1.3;
 const NREG = 24;
@@ -2198,8 +2233,11 @@ function surfaceInTile(ix, iz, lx, ly, lz, region) {
 }
 function groundAt(px, py, pz, dt) {
   if (!WARP.a) return groundAtFlat(px, py, pz, dt);
-  const w = warpH(px, pz), g = groundAtFlat(px, py - w, pz, dt); if (!g) return null;
-  const gr = warpG(px, pz), n = g.n; g.h += w; g.n = vnorm([n[0] - gr[0] * n[1], n[1], n[2] - gr[1] * n[1]]);
+  const w = warpH(px, pz), gr = warpG(px, pz), ny = 1 / Math.sqrt(1 + gr[0] * gr[0] + gr[1] * gr[1]);
+  let pyf = py - w;
+  if (pyf < -STEP && pyf * ny > -STEP * 1.5) pyf = -STEP + 0.01; // just inside a steep wall (a big vertical gap is a small one along the normal)
+  const g = groundAtFlat(px, pyf, pz, dt); if (!g) return null;
+  const n = g.n; g.d = py - w - g.h; g.h += w; g.n = vnorm([n[0] - gr[0] * n[1], n[1], n[2] - gr[1] * n[1]]);
   return g;
 }
 function groundAtFlat(px, py, pz, dt) {
@@ -2389,17 +2427,19 @@ class Car {
     // ground probe
     const g = groundAt(this.pos[0], this.pos[1], this.pos[2], dt);
     let grounded = false;
-    if (g && g.n[1] > 0.28) {
+    // tyres cling to the folded street walls of this dimension; elsewhere the usual slope limit applies
+    const wallGrip = g && g.reg === 0 && onFoldWall(this.pos[0], this.pos[2]);
+    if (g && g.n[1] > (wallGrip ? 0.04 : 0.28)) {
       const rel = vsub(this.vel, g.vel); const vn = vdot(rel, g.n);
-      const snap = this.grounded ? 0.55 : 0.12;
-      if (g.d < snap && !(vn > 3.5 && !this.grounded) && !(this.grounded && vn > 9)) grounded = true;
+      const snap = this.grounded ? 0.55 : 0.12, dN = g.d * g.n[1]; // distance along the surface normal
+      if (dN < snap && !(vn > 3.5 && !this.grounded) && !(this.grounded && vn > (wallGrip ? 14 : 9))) grounded = true;
     }
     if (grounded) {
       const n = g.n;
       if (!this.grounded) this.land(g, ev);
       this.groundReg = g.reg;
       // snap to surface along normal
-      this.pos = vmadd(this.pos, n, -g.d);
+      this.pos = vmadd(this.pos, n, -g.d * n[1]);
       let rel = vsub(this.vel, g.vel);
       const vn = vdot(rel, n); if (vn < 0) rel = vmadd(rel, n, -vn);
       // orientation basis on surface
@@ -2705,7 +2745,7 @@ function spawnTraffic(car, n) {
     const a = rnd(0, TAU), r = rnd(160, 420);
     let x = wrapW(car.pos[0] + Math.cos(a) * r), z = wrapW(car.pos[2] + Math.sin(a) * r);
     let ix = Math.floor(x / T), iz = Math.floor(z / T); const ty = CITY.type[tid(ix, iz)];
-    if (ty > 1) continue;
+    if (ty > 1 || FOLD_COL.has(ix) || FOLD_ROW.has(iz)) continue;
     if (tsGet(ix, iz, 0) || tsGet(ix, iz, 4) > .5 || Math.abs(tsGet(ix, iz, 1)) > .1) continue;
     const dirS = Math.random() < 0.5 ? 1 : -1; const lane = Math.random() < 0.5 ? 2.25 : 6.75;
     const cx = ix * T + T / 2, cz = iz * T + T / 2;
@@ -3406,7 +3446,7 @@ function findRoadSpawn(nearX, nearZ) {
   for (let k = 0; k < 200; k++) {
     const x = wrapW(nearX + rnd(-300, 300)), z = wrapW(nearZ + rnd(-300, 300));
     const ix = Math.floor(x / T), iz = Math.floor(z / T); const ty = CITY.type[tid(ix, iz)];
-    if (ty > 1) continue; if (tsGet(ix, iz, 0) || tsGet(ix, iz, 4) > .5) continue;
+    if (ty > 1) continue; if (tsGet(ix, iz, 0) || tsGet(ix, iz, 4) > .5) continue; if (FOLD_COL.has(ix) || FOLD_ROW.has(iz)) continue;
     if (ty === 0) { const px = ix * T + T / 2 - 4.5, pz = iz * T + T / 2; return { pos: [px, warpH(px, pz) + 0.05, pz], heading: 0 }; }
     const px = ix * T + T / 2, pz = iz * T + T / 2 + 4.5; return { pos: [px, warpH(px, pz) + 0.05, pz], heading: PI / 2 };
   }
