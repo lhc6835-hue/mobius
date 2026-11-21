@@ -628,6 +628,16 @@ uniform highp sampler2D uTileTex;
 uniform mat4 uReg[24];
 uniform mat4 uPre;
 uniform vec3 uCam; uniform float uTime; uniform float uWarpA; uniform float uRevD;
+uniform highp sampler2D uRibTex; uniform int uRibOn, uRibN; uniform float uRibL, uPU;
+vec4 ribT(int i,int k){ return texelFetch(uRibTex,ivec2(i%1024,(i/1024)*3+k),0); }
+// living skyway frame — same formula as ribFrame() on the CPU
+void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float cum){
+  vec4 a=ribT(i,0), b=ribT(i,1), c=ribT(i,2); P=a.xyz; cum=a.w; N=b.xyz; S=c.xyz; Tt=cross(S,N);
+  float wv=b.w, ws=c.w; const float TP=6.2831853;
+  float roll=wv*(0.34*sin(cum*TP/260.-uTime*1.3)+0.22*sin(cum*TP/610.+uTime*0.7));
+  float dy=wv*6.*sin(cum*TP/340.+uTime*1.1), sx=ws*5.*sin(cum*TP/450.-uTime*0.8);
+  P+=vec3(S.x,0.,S.z)*sx+N*dy; float cr=cos(roll), sr=sin(roll); vec3 N2=N*cr-S*sr; S=S*cr+N*sr; N=N2;
+}
 ${BEND_GLSL}
 const float WK=6.28318531/3840.;
 float warpH(vec2 q){ return uWarpA*(70.*sin(WK*2.*q.x+0.7)*cos(WK*q.y+0.3)+35.*sin(WK*(3.*q.x+2.*q.y)+2.1)+25.*sin(WK*(-q.x+4.*q.y)+1.3)); }
@@ -640,6 +650,18 @@ void main(){
     mat4 im=mat4(iR0.x,iR1.x,iR2.x,0., iR0.y,iR1.y,iR2.y,0., iR0.z,iR1.z,iR2.z,0., iR0.w,iR1.w,iR2.w,1.);
     p=(im*vec4(p,1)).xyz; n=mat3(im)*n; ext=iExt;
   } else { p=(uModel*vec4(p,1)).xyz; n=mat3(uModel)*n; }
+  if(uRibOn==1 && ext.x<-1.5){ // skyway vertex: rebuilt from the live frame, scattered into fragments away from the player
+    int i=int(ext.y+0.5); vec3 P,N,S,Tt; float cum; ribLive(i,P,N,S,Tt,cum);
+    p=P+S*ext.z+N*ext.w; n=normalize(S*aNor.x+N*aNor.y+Tt*aNor.z);
+    float du=mod(cum-uPU,uRibL); float f=du<uRibL*0.5?smoothstep(380.,700.,du):smoothstep(130.,340.,uRibL-du);
+    if(f>0.001){
+      int g=i/6; float gh=float(g); vec3 h3=fract(sin(vec3(gh*12.9898,gh*78.233,gh*37.719))*43758.5453);
+      vec3 C,Nc,Sc,Tc; float cc; ribLive(min(g*6+3,uRibN-1),C,Nc,Sc,Tc,cc);
+      vec3 ax=normalize(h3-0.5+vec3(0.,0.002,0.)); float ang=f*(1.5+3.*h3.x)+uTime*0.35*f*(h3.y-0.5);
+      float ca=cos(ang), sa=sin(ang); vec3 d=p-C; d=d*ca+cross(ax,d)*sa+ax*dot(ax,d)*(1.-ca); n=n*ca+cross(ax,n)*sa+ax*dot(ax,n)*(1.-ca);
+      p=C+d+((h3-0.5)*vec3(150.,90.,150.)+vec3(0.,40.,0.))*f*f;
+    }
+  }
   vec4 ts=vec4(0);
   vLP=p;
   if(uTiled==1 && ext.x>=0.){
@@ -3203,7 +3225,7 @@ const revD = D => Math.min(D * 1.08, (D - 31) / 0.86);
 function setBend(u, on) { gl.uniform1f(u.uBend, on ? RND.bend : 0); gl.uniform1f(u.uBendA, RND.bendA); gl.uniform1f(u.uBendR, RND.bendR); }
 function setWorldCommon(prog, time) {
   const u = prog.u;
-  setBend(u, 1); gl.uniform1f(u.uWarpA, WARP.a); gl.uniform1f(u.uRevD, revD(RND.viewDist));
+  setBend(u, 1); gl.uniform1i(u.uRibOn, 0); gl.uniform1f(u.uWarpA, WARP.a); gl.uniform1f(u.uRevD, revD(RND.viewDist));
   gl.uniformMatrix4fv(u.uVP, false, RND.vp);
   gl.uniform3fv(u.uCam, RND.cam);
   gl.uniform1f(u.uTime, time);
@@ -3306,6 +3328,7 @@ function renderFrame(time, scene) {
     const pre = m4(); pre[5] = -1; pre[13] = RND.flipH;
     gl.uniformMatrix4fv(u.uPre, false, pre); gl.uniform1f(u.uFlipFade, RND.flipFade);
     for (const v of vis) if (v.d > 200) drawMesh(v.ch.mesh, IDENT, 1, v.off);
+    if (GAME.race && GAME.race.rt.rib) ribDraw(GAME.race.rt); // the mirrored skyway hangs in the sky too
     gl.uniformMatrix4fv(u.uPre, false, IDENT); gl.uniform1f(u.uFlipFade, 0);
   }
   // decals (skids, shadow, glows)
@@ -3554,7 +3577,7 @@ function showResults() {
 function updateGems(dt) {
   const car = GAME.car, R = GAME.run;
   const cp = [wrapW(car.pos[0]), wrapW(car.pos[2])];
-  if (GAME.race && GAME.race.rt.rib) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-8, -3, 3, 8]); for (let k = 0; k < 4; k++) { const fr = ribFrame(race.rt, s + k * 7); const p = vadd(vmadd(fr.P, fr.S, lane), vscale(fr.N, 1.4)); GAME.gems.push({ x: p[0], z: p[2], y: p[1], t: rnd(0, 6), alive: true, fly: false, rib: true }); } } }
+  if (GAME.race && GAME.race.rt.rib) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-8, -3, 3, 8]); for (let k = 0; k < 4; k++) { const fr = ribFrame(race.rt, s + k * 7); const p = vadd(vmadd(fr.P, fr.S, lane), vscale(fr.N, 1.4)); GAME.gems.push({ x: p[0], z: p[2], y: p[1], t: rnd(0, 6), alive: true, fly: false, rib: true, u: s + k * 7, lane }); } } }
   else if (GAME.race) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-6, -2, 2, 6]); for (let k = 0; k < 4; k++) { const at = pathAt(race.rt, s + k * 7); const sd = [at.dir[2], 0, -at.dir[0]]; GAME.gems.push({ x: at.p[0] + sd[0] * lane, z: at.p[1] + sd[2] * lane, y: 1.4, t: rnd(0, 6), alive: true, fly: false }); } } }
   // spawn along roads ahead
   while (!GAME.race && GAME.gems.length < 26) {
@@ -3570,6 +3593,7 @@ function updateGems(dt) {
   for (const g of GAME.gems) {
     g.t += dt;
     const dx = wrapD(g.x - cp[0]), dz = wrapD(g.z - cp[1]);
+    if (g.rib && !g.fly && GAME.race) { const fr = ribFrame(GAME.race.rt, g.u, g); const p = vadd(vmadd(fr.P, fr.S, g.lane), vscale(fr.N, 1.4)); g.x = p[0]; g.y = p[1]; g.z = p[2]; }
     if (!g.fly && !g.rib) { const gb = groundAt(g.x, warpH(g.x, g.z) + 50, g.z, dt); const gy = gb ? gb.h + 1.6 : -999; g.y = damp(g.y, gy, 6, dt); }
     const cu = car.rib ? car.surfN : [0, 1, 0];
     const dy = g.y - (car.pos[1] + cu[1]); const dist = Math.hypot(dx - cu[0], dy, dz - cu[2]);
@@ -3764,10 +3788,10 @@ const SCENE = {
     if (GAME.race && GATE) {
       const race = GAME.race, rt = race.rt, u = RND.world.u;
       if (rt.rib) {
-        drawMesh(rt.mesh, IDENT, 0);
+        ribDraw(rt);
         const sm = ((race.sLap % rt.L) + rt.L) % rt.L; let nextI = -1, bd = 1e9;
         rt.gates.forEach((g, i) => { if (g.start) return; let d = g.u - sm; if (d < 0) d += rt.L; if (d < bd) { bd = d; nextI = i; } });
-        rt.gates.forEach((g, i) => { gl.uniform3fv(u.uTint, g.start ? [1.3, 1.3, 1.3] : i === nextI ? [0.4, 1.6, 1.9] : [0.35, 0.3, 0.45]); const M = g.M || (g.M = ribGateM(rt, g.u)); drawMesh(GATE, M, 0); if (g.start) drawMesh(GATE.check, M, 0); });
+        rt.gates.forEach((g, i) => { gl.uniform3fv(u.uTint, g.start ? [1.3, 1.3, 1.3] : i === nextI ? [0.4, 1.6, 1.9] : [0.35, 0.3, 0.45]); let gd = g.u - sm; if (gd < 0) gd += rt.L; if (gd > 380 && gd < rt.L - 130) return; const M = ribGateM(rt, g.u); drawMesh(GATE, M, 0); if (g.start) drawMesh(GATE.check, M, 0); });
         gl.uniform3fv(u.uTint, RND.tint);
         for (const a of race.ai) { if (!a.x3) continue; drawCar(a.spec, m4qps(m4(), a.q, a.x3), a.spin, 0); }
       } else {
@@ -4916,7 +4940,7 @@ function startRace(ti) {
 function respawnRace(msg) {
   const race = GAME.race, car = GAME.car, rt = race.rt;
   if (rt.rib) {
-    const st = car.rib; st.x = 0; st.psi = 0; st.vT = Math.max(18, st.vT); st.vS = 0; const fr = ribPose(car, 0); car.invuln = 1.5;
+    const st = car.rib; st.x = 0; st.psi = 0; st.vT = Math.max(18, st.vT); st.vS = 0; car.yawKick = 0; car.slideT = 0; const fr = ribPose(car, 0); car.invuln = 1.5;
     GAME.camPos = vadd(vmadd(car.pos, fr.T, -14), vscale(fr.N, 5)); GAME.camUp = fr.N;
     RND.post.flash = [0.4, 0.9, 1, 0.5]; HUD.pop(msg || 'RESPAWN', '#7fdcff', 0.9); GAME.run.breakCombo(); return;
   }
@@ -5093,7 +5117,7 @@ function buildRibbon(tr, rt) {
     cur = end;
   }
   // ---- 3. centreline samples (loops / helices are inserted, they add length without moving the base path) ----
-  const P = [], PB = [], UP = [], NB = [], RL = [], CRr = [], KB = [];
+  const P = [], PB = [], UP = [], NB = [], RL = [], CRr = [], KB = [], INS = [];
   for (let k = 0; k < nb; k++) {
     const a = bp[(k - 1 + nb) % nb], b = bp[(k + 1) % nb]; const dl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     const t0 = [(b[0] - a[0]) / dl, 0, (b[1] - a[1]) / dl], s0 = [t0[2], 0, -t0[0]];
@@ -5105,18 +5129,18 @@ function buildRibbon(tr, rt) {
         for (let j = 1; j < n; j++) {
           const f = j / n * TAU, w = lerp(-iz.LS, iz.LS, ease3(j / n)), sf = Math.sin(f) * iz.R;
           P.push([B[0] + t0[0] * sf + s0[0] * w, B[1] + iz.R * (1 - Math.cos(f)), B[2] + t0[2] * sf + s0[2] * w]);
-          PB.push(P[P.length - 1]); UP.push([-t0[0] * Math.sin(f), Math.cos(f), -t0[2] * Math.sin(f)]); NB.push(1); RL.push(0); CRr.push(0); KB.push(k);
+          PB.push(P[P.length - 1]); INS.push(1); UP.push([-t0[0] * Math.sin(f), Math.cos(f), -t0[2] * Math.sin(f)]); NB.push(1); RL.push(0); CRr.push(0); KB.push(k);
         }
       } else {
         const n = Math.round(Math.hypot(TAU * iz.R, iz.Hh) / RDS);
         for (let j = 1; j < n; j++) {
           const f = j / n * TAU, sf = Math.sin(f) * iz.R, sd = (1 - Math.cos(f)) * iz.R * iz.side;
           P.push([B[0] + t0[0] * sf + s0[0] * sd, B[1] + iz.Hh * ease3(j / n), B[2] + t0[2] * sf + s0[2] * sd]);
-          PB.push(P[P.length - 1]); UP.push(null); NB.push(0); RL.push(0); CRr.push(0); KB.push(k);
+          PB.push(P[P.length - 1]); INS.push(1); UP.push(null); NB.push(0); RL.push(0); CRr.push(0); KB.push(k);
         }
       }
     }
-    P.push([bp[k][0] + s0[0] * W[k], H[k], bp[k][1] + s0[2] * W[k]]); PB.push([bp[k][0], H[k], bp[k][1]]); UP.push(null); NB.push(0); RL.push(ROLL[k]); CRr.push(CR[k]); KB.push(k);
+    P.push([bp[k][0] + s0[0] * W[k], H[k], bp[k][1] + s0[2] * W[k]]); PB.push([bp[k][0], H[k], bp[k][1]]); INS.push(0); UP.push(null); NB.push(0); RL.push(ROLL[k]); CRr.push(CR[k]); KB.push(k);
   }
   const n = P.length;
   const tangOf = (arr, i) => vnorm(vsub(arr[(i + 1) % n], arr[(i - 1 + n) % n]));
@@ -5168,11 +5192,31 @@ function buildRibbon(tr, rt) {
     const a = Tn[(i - 1 + n) % n], b = Tn[(i + 1) % n]; const ds = (cum[i + 1] - cum[i]) + (i > 0 ? cum[i] - cum[i - 1] : cum[n] - cum[n - 1]);
     KG[i] = vdot(vsub(b, a), [Sf[i * 3], Sf[i * 3 + 1], Sf[i * 3 + 2]]) / Math.max(ds, 0.01);
   }
+  // living deck: how much each part may writhe (never on set pieces, gently near the start, never down into the city)
+  const WV = new Float32Array(n), WS = new Float32Array(n);
+  { const mask = new Float32Array(n).fill(1), cl = new Float32Array(n);
+    for (const f of featK) { const half = Math.round(RIB_NEED[f.type] / 2 / RDS), k0 = f.k - 25, k1 = f.k + 2 * half + 25; for (let i = 0; i < n; i++) if (KB[i] >= k0 && KB[i] <= k1) mask[i] = 0; }
+    for (let i = 0; i < n; i++) {
+      if (INS[i] || NB[i]) mask[i] = 0;
+      if (KB[i] < startK || KB[i] > nb - endK) mask[i] = Math.min(mask[i], 0.35);
+      cl[i] = clamp((Pf[i * 3 + 1] - 1.2 - RW * Math.abs(Sf[i * 3 + 1]) - 3) / 10, 0, 1);
+    }
+    const box = (src, out) => { const R2 = 40; let acc = 0; for (let j = -R2; j <= R2; j++) acc += src[(j + n) % n]; for (let i = 0; i < n; i++) { out[i] = acc / (2 * R2 + 1); acc += src[(i + R2 + 1) % n] - src[(i - R2 + n) % n]; } };
+    const mv = new Float32Array(n); for (let i = 0; i < n; i++) mv[i] = Math.min(mask[i], cl[i]);
+    box(mv, WV); box(mask, WS);
+    for (let i = 0; i < n; i++) { WV[i] = Math.min(WV[i], mask[i] > 0 ? 1 : 0, cl[i]); WS[i] = Math.min(WS[i], mask[i] > 0 ? 1 : 0); }
+  }
+  // ribbon frames for the GPU: per sample 3 texels (P,cum) (N,wv) (S,ws), 1024 samples per row band
+  const rows = Math.ceil(n / 1024), td = new Float32Array(1024 * rows * 3 * 4);
+  for (let i = 0; i < n; i++) {
+    const x = i % 1024, r = Math.floor(i / 1024) * 3, put = (k, a, b, c, d) => { const o = ((r + k) * 1024 + x) * 4; td[o] = a; td[o + 1] = b; td[o + 2] = c; td[o + 3] = d; };
+    put(0, Pf[i * 3], Pf[i * 3 + 1], Pf[i * 3 + 2], cum[i]); put(1, Nf[i * 3], Nf[i * 3 + 1], Nf[i * 3 + 2], WV[i]); put(2, Sf[i * 3], Sf[i * 3 + 1], Sf[i * 3 + 2], WS[i]);
+  }
   // start line 60 m into the first straight
   let i0 = 0; while (i0 < n && (KB[i0] < 40 || NB[i0])) i0++;
   const uOff = cum[i0];
   const uOfK = k => { let i = 0; while (i < n && KB[i] < k) i++; return (((cum[Math.min(i, n - 1)] - uOff) % L) + L) % L; };
-  const rb = { rib: true, tr, n, L, cum, P: Pf, T: Tf, N: Nf, S: Sf, KG, uOff, turn: turns, nc };
+  const rb = { rib: true, tr, n, L, cum, P: Pf, T: Tf, N: Nf, S: Sf, KG, uOff, turn: turns, nc, WV, WS, tex: makeTex(1024, rows * 3, td, { float: true, nearest: true, clamp: true }) };
   rb.cornerS = cornerK.map(uOfK);
   rb.feats = featK.map(f => ({ u: uOfK(f.k), type: f.type, ko: RIB_KO[f.type] })).sort((a, b) => a.u - b.u);
   rb.pts = []; for (let i = 0; i < n; i += 4) rb.pts.push([Pf[i * 3], Pf[i * 3 + 2]]);
@@ -5182,16 +5226,18 @@ function buildRibbon(tr, rt) {
   const V = i => [Pf[i * 3], Pf[i * 3 + 1], Pf[i * 3 + 2]], NV = i => [Nf[i * 3], Nf[i * 3 + 1], Nf[i * 3 + 2]], SV = i => [Sf[i * 3], Sf[i * 3 + 1], Sf[i * 3 + 2]];
   for (let i = 0; i < n; i++) {
     const p = V(i), nn = NV(i), ss = SV(i), u = cum[i];
-    const Lp = vmadd(p, ss, RW), Rp = vmadd(p, ss, -RW), dn = vscale(nn, -1.6), up9 = vscale(nn, 0.9), ns = vscale(nn, -1), ms = vscale(ss, -1);
-    mb.m = 12; mb.c = [1, 1, 1]; mb.vert(Lp, nn, 1, u); mb.vert(Rp, nn, -1, u);
-    mb.m = 7; mb.vert(vadd(Lp, dn), ns); mb.vert(vadd(Rp, dn), ns);
-    mb.m = 10; mb.c = [0.09, 0.08, 0.12]; mb.vert(Lp, ss); mb.vert(vadd(Lp, dn), ss); mb.vert(Rp, ms); mb.vert(vadd(Rp, dn), ms);
-    mb.c = [0.16, 0.12, 0.2]; mb.vert(Lp, ms); mb.vert(vadd(Lp, up9), ms); mb.vert(Rp, ss); mb.vert(vadd(Rp, up9), ss);
+    // ext = (-2 marker, sample, across, up); normal = (across, up, along) in the deck frame
+    const W = (x, y, nl, uu, ww) => { mb.e = [-2, i, x, y]; mb.vert(vadd(vmadd(p, ss, x), vscale(nn, y)), nl, uu, ww); };
+    mb.m = 12; mb.c = [1, 1, 1]; W(RW, 0, [0, 1, 0], 1, u); W(-RW, 0, [0, 1, 0], -1, u);
+    mb.m = 7; W(RW, -1.6, [0, -1, 0]); W(-RW, -1.6, [0, -1, 0]);
+    mb.m = 10; mb.c = [0.09, 0.08, 0.12]; W(RW, 0, [1, 0, 0]); W(RW, -1.6, [1, 0, 0]); W(-RW, 0, [-1, 0, 0]); W(-RW, -1.6, [-1, 0, 0]);
+    mb.c = [0.16, 0.12, 0.2]; W(RW, 0, [-1, 0, 0]); W(RW, 0.9, [-1, 0, 0]); W(-RW, 0, [1, 0, 0]); W(-RW, 0.9, [1, 0, 0]);
     mb.m = 3; mb.fuv = [2.4, 0];
-    mb.c = [1, 0.3, 0.85]; mb.vert(vadd(Lp, up9), nn); mb.vert(vadd(vmadd(Lp, ss, 0.35), up9), nn);
-    mb.c = [0.35, 0.85, 1]; mb.vert(vadd(Rp, up9), nn); mb.vert(vadd(vmadd(Rp, ss, -0.35), up9), nn);
+    mb.c = [1, 0.3, 0.85]; W(RW, 0.9, [0, 1, 0]); W(RW + 0.35, 0.9, [0, 1, 0]);
+    mb.c = [0.35, 0.85, 1]; W(-RW, 0.9, [0, 1, 0]); W(-RW - 0.35, 0.9, [0, 1, 0]);
     mb.fuv = null;
   }
+  mb.e = [-1, -1, 0, 0];
   for (let i = 0; i < n; i++) {
     const a = i * 16, b = ((i + 1) % n) * 16;
     for (let q = 0; q < 16; q += 2) mb.i.push(a + q, a + q + 1, b + q + 1, a + q, b + q + 1, b + q);
@@ -5234,8 +5280,8 @@ function buildRibbon(tr, rt) {
   // ---- 6. carve the city around the ribbon ----
   for (let i = 0; i < n; i += 2) {
     const p = V(i), nn = NV(i), ss = SV(i);
-    markSphere(vmadd(p, nn, 1.6), RW + 4);
-    for (const off of [-RW, 0, RW]) {
+    markSphere(vmadd(p, nn, 1.6), RW + 4 + 5 * WS[i]);
+    for (const off of [-RW - 5 * WS[i], 0, RW + 5 * WS[i]]) {
       const q = vmadd(p, ss, off);
       const lr = lotAt(q[0], q[2]);
       if (lr) for (let tz = lr[1]; tz <= lr[3]; tz++) for (let tx = lr[0]; tx <= lr[2]; tx++) {
@@ -5262,7 +5308,18 @@ function ribFrame(rb, u, st) {
   const g3 = (A, k) => [A[k * 3], A[k * 3 + 1], A[k * 3 + 2]];
   const P = vlerp(g3(rb.P, i), g3(rb.P, j), t), T = vnorm(vlerp(g3(rb.T, i), g3(rb.T, j), t));
   let Nn = vnorm(vlerp(g3(rb.N, i), g3(rb.N, j), t)); Nn = vnorm(vsub(Nn, vscale(T, vdot(Nn, T))));
-  return { P, T, N: Nn, S: vcross(Nn, T), kg: lerp(rb.KG[i], rb.KG[j], t), i };
+  let S = vcross(Nn, T), Pd = P;
+  if (rb.WV) { // living deck — same formula as ribLive() in WORLD_VS
+    const wv = lerp(rb.WV[i], rb.WV[j], t), ws = lerp(rb.WS[i], rb.WS[j], t);
+    if (wv > 1e-3 || ws > 1e-3) {
+      const tm = GAME.time, c = rb.cum[i] + (rb.cum[i + 1] - rb.cum[i]) * t;
+      const roll = wv * (0.34 * Math.sin(c * TAU / 260 - tm * 1.3) + 0.22 * Math.sin(c * TAU / 610 + tm * 0.7));
+      const dy = wv * 6 * Math.sin(c * TAU / 340 + tm * 1.1), sx = ws * 5 * Math.sin(c * TAU / 450 - tm * 0.8);
+      Pd = vadd(vadd(P, [S[0] * sx, 0, S[2] * sx]), vscale(Nn, dy)); // sway stays horizontal so banked decks don't sink
+      const cr = Math.cos(roll), sr = Math.sin(roll), N2 = vsub(vscale(Nn, cr), vscale(S, sr)); S = vadd(vscale(S, cr), vscale(Nn, sr)); Nn = N2;
+    }
+  }
+  return { P: Pd, T, N: Nn, S, kg: lerp(rb.KG[i], rb.KG[j], t), i };
 }
 // place the player car on the ribbon from its track-space state
 function ribPose(car, dt) {
@@ -5274,6 +5331,12 @@ function ribPose(car, dt) {
   car.q = dt > 0 ? qslerp(car.q, tq, 1 - Math.exp(-35 * dt)) : tq;
   car.heading = Math.atan2(f3[0], f3[2]); car.surfN = fr.N;
   return fr;
+}
+function ribDraw(rb) {
+  const u = RND.world.u; gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, rb.tex); gl.uniform1i(u.uRibTex, 3);
+  gl.uniform1i(u.uRibOn, 1); gl.uniform1f(u.uRibL, rb.L); gl.uniform1i(u.uRibN, rb.n);
+  gl.uniform1f(u.uPU, ((((GAME.car.rib ? GAME.car.rib.u : 0) + rb.uOff) % rb.L) + rb.L) % rb.L);
+  drawMesh(rb.mesh, IDENT, 0); gl.uniform1i(u.uRibOn, 0);
 }
 function ribGateM(rb, u) { const fr = ribFrame(rb, u); return m4qps(m4(), qfromBasis(fr.S, fr.N, fr.T), fr.P); }
 // ---------- skyway rivals: track-space drivers with a racing line, overtakes, boost, drifts and the odd mistake ----------
@@ -5436,7 +5499,7 @@ function updateRaceProgressRib(dt, race, car) {
     HUD.banner(race.lap === race.laps - 1 ? 'FINAL LAP' : `LAP ${race.lap + 1}`, race.lap === race.laps - 1 ? '마지막 바퀴!' : `랩 타임 ${fmtT(lt)}`); if (race.lap === race.laps - 1) AUDIO.jingle('j_final'); else AUDIO.chime(4);
   }
   if (car.speed < 3) { race.stuck = (race.stuck || 0) + dt; if (race.stuck > 2.5) { race.stuck = 0; respawnRace('코스 복귀'); return; } } else race.stuck = 0;
-  if (car.rib.vT < -6) { race.wrong += dt; if (race.wrong > 1.2) HUD.wrong(true); } else { race.wrong = 0; HUD.wrong(false); }
+  if (car.rib.vT < -6 || (Math.abs(car.rib.psi) > 2.2 && car.speed < 12)) { race.wrong += dt; if (race.wrong > 1.2) HUD.wrong(true); if (race.wrong > 3) { race.wrong = 0; HUD.wrong(false); respawnRace('코스 복귀'); return; } } else { race.wrong = 0; HUD.wrong(false); }
   race.dir = car.rib.fr ? car.rib.fr.T : [0, 0, 1];
 }
 
