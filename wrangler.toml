@@ -6,3 +6,7 @@ workers_dev = true
 type = "Text"
 globs = ["**/*.html"]
 fallthrough = false
+
+[[kv_namespaces]]
+binding = "AUDIO_KV"
+id = "48fb17331dd14149a169b154311759b6"
