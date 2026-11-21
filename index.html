@@ -3429,7 +3429,7 @@ function showResults() {
 function updateGems(dt) {
   const car = GAME.car, R = GAME.run;
   const cp = [wrapW(car.pos[0]), wrapW(car.pos[2])];
-  if (GAME.race && GAME.race.rt.rib) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-5, -2, 2, 5]); for (let k = 0; k < 4; k++) { const fr = ribFrame(race.rt, s + k * 7); const p = vadd(vmadd(fr.P, fr.S, lane), vscale(fr.N, 1.4)); GAME.gems.push({ x: p[0], z: p[2], y: p[1], t: rnd(0, 6), alive: true, fly: false, rib: true }); } } }
+  if (GAME.race && GAME.race.rt.rib) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-8, -3, 3, 8]); for (let k = 0; k < 4; k++) { const fr = ribFrame(race.rt, s + k * 7); const p = vadd(vmadd(fr.P, fr.S, lane), vscale(fr.N, 1.4)); GAME.gems.push({ x: p[0], z: p[2], y: p[1], t: rnd(0, 6), alive: true, fly: false, rib: true }); } } }
   else if (GAME.race) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-6, -2, 2, 6]); for (let k = 0; k < 4; k++) { const at = pathAt(race.rt, s + k * 7); const sd = [at.dir[2], 0, -at.dir[0]]; GAME.gems.push({ x: at.p[0] + sd[0] * lane, z: at.p[1] + sd[2] * lane, y: 1.4, t: rnd(0, 6), alive: true, fly: false }); } } }
   // spawn along roads ahead
   while (!GAME.race && GAME.gems.length < 26) {
@@ -3644,7 +3644,7 @@ const SCENE = {
         rt.gates.forEach((g, i) => { if (g.start) return; let d = g.u - sm; if (d < 0) d += rt.L; if (d < bd) { bd = d; nextI = i; } });
         rt.gates.forEach((g, i) => { gl.uniform3fv(u.uTint, g.start ? [1.3, 1.3, 1.3] : i === nextI ? [0.4, 1.6, 1.9] : [0.35, 0.3, 0.45]); const M = g.M || (g.M = ribGateM(rt, g.u)); drawMesh(GATE, M, 0); if (g.start) drawMesh(GATE.check, M, 0); });
         gl.uniform3fv(u.uTint, RND.tint);
-        for (const a of race.ai) { if (a.x === undefined) continue; drawCar(a.spec, m4qps(m4(), a.q, [a.x, a.y, a.z]), a.spin, 0); }
+        for (const a of race.ai) { if (!a.x3) continue; drawCar(a.spec, m4qps(m4(), a.q, a.x3), a.spin, 0); }
       } else {
       if (GAME.track) drawMesh(GAME.track.mesh, IDENT, 1, [RND.cam[0] - wrapW(RND.cam[0]), 0, RND.cam[2] - wrapW(RND.cam[2])]);
       const nextC = rt.cornerS.findIndex(cs => cs > (((race.sLap % rt.L) + rt.L) % rt.L));
@@ -3658,7 +3658,7 @@ const SCENE = {
         drawMesh(GATE, M, 0); if (isStart) drawMesh(GATE.check, M, 0);
       }
       gl.uniform3fv(u.uTint, RND.tint);
-      for (const a of race.ai) { if (a.x === undefined || a.fallT > 0) continue; const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); drawCar(a.spec, m4qps(m4(), a.q, [im[0], a.y, im[1]]), a.spin, 0); }
+      for (const a of race.ai) { if (a.x === undefined || a.fallT > 0) continue; const im = imageOf(a.x3 ? a.x3[0] : a.x, a.x3 ? a.x3[2] : a.z, RND.cam[0], RND.cam[2]); drawCar(a.spec, m4qps(m4(), a.q, [im[0], a.y, im[1]]), a.spin, 0); }
       }
     }
     // gems
@@ -4066,7 +4066,7 @@ const HUD = {
     const W = innerWidth, H = innerHeight;
     race.ai.forEach((a, i) => {
       const t = $('#tag' + i); if (!t || a.x === undefined) return;
-      const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); const tu = a.N || [0, 1, 0]; const p = bendPt([im[0] + tu[0] * 2.4, a.y + tu[1] * 2.4, im[1] + tu[2] * 2.4]);
+      const im = imageOf(a.x3 ? a.x3[0] : a.x, a.x3 ? a.x3[2] : a.z, RND.cam[0], RND.cam[2]); const tu = a.N || [0, 1, 0]; const p = bendPt([im[0] + tu[0] * 2.4, a.y + tu[1] * 2.4, im[1] + tu[2] * 2.4]);
       const v = RND.vp; const cx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12], cy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13], cw = v[3] * p[0] + v[7] * p[1] + v[11] * p[2] + v[15];
       const d = Math.hypot(im[0] - car.pos[0], im[1] - car.pos[2]);
       if (cw < 1 || d > 180 || a.fallT > 0) { t.style.opacity = 0; return; }
@@ -4773,13 +4773,13 @@ function startRace(ti) {
   if (GAME.track) { removeTrack(GAME.track); GAME.track = null; }
   GAME.car.setup(spec, S);
   GAME.car.reset([0, 0, 0], 0);
-  GAME.car.rib = { rb: rt, u: -31, x: 2, psi: 0, vT: 0, vS: 0, hint: -1 };
+  GAME.car.rib = { rb: rt, u: -30, x: -4.5, psi: 0, vT: 0, vS: 0, hint: -1 };
   const sf = ribPose(GAME.car, 0);
   GAME.run = new Run(spec); GAME.run.countdown = 3.6; GAME.run.rescues = 99;
-  GAME.race = { ti, tr, rt, laps: tr.laps, lap: 0, sLap: -14, total: -14, hint: 0, t: 0, lapT: 0, best: 0, ai: makeRivals(rt), finished: [], hzNext: 4, off: 0, wrong: 0, started: false, countdown: 3.6, lastSafe: -31 };
-  GAME.race.sLap = GAME.race.total = -31;
+  GAME.race = { ti, tr, rt, laps: tr.laps, lap: 0, sLap: -14, total: -14, hint: 0, t: 0, lapT: 0, best: 0, ai: rt.rib ? makeRivalsRib(rt, S) : makeRivals(rt), finished: [], hzNext: 4, off: 0, wrong: 0, started: false, countdown: 3.6, lastSafe: -31 };
+  GAME.race.sLap = GAME.race.total = -30;
   for (const k in PRESSED) PRESSED[k] = false;
-  GAME.state = 'run'; GAME.camPos = vadd(vmadd(GAME.car.pos, sf.T, -25), vscale(sf.N, 14)); GAME.camUp = sf.N; GAME.race.base = base;
+  GAME.state = 'run'; GAME.camPos = vadd(vmadd(GAME.car.pos, sf.T, -25), vscale(sf.N, 14)); GAME.camUp = sf.N; GAME.race.base = base; GAME.race.vprof = ribProfile(rt, S.top);
   document.body.classList.add('race');
   HUD.show(true); HUD.reset(); HUD.raceInit(GAME.race); TIPS.start(); AUDIO.setMusic(true, 'run'); AUDIO.jingle('j_start'); UI.hideAll();
 }
@@ -4866,7 +4866,7 @@ function raceResults() {
 }
 
 // ================= SKYWAY: twisted 3D race ribbon — the car sticks to it at any angle =================
-const RW = 7.5, RDS = 1.5;
+const RW = 11, RDS = 1.5; // deck half-width: room for three cars abreast
 const NOANOM = new Uint8Array(N * N); // tiles near the ribbon: no far-off anomalies there
 const RIB_KO = { loop: '루프', helix: '나선 회전', cork: '코크스크루', twist: '트위스트', invert: '천장 주행', roll2: '더블 롤', arch: '교차 빌딩' };
 const RIB_NEED = { loop: 120, helix: 40, cork: 150, twist: 80, invert: 240, roll2: 190, arch: 50 };
@@ -4941,10 +4941,10 @@ function buildRibbon(tr, rt) {
       const dir = R() < 0.5 ? 1 : -1;
       featK.push({ k: kc - half, type });
       if (type === 'loop') {
-        const LS = 8.5;
+        const LS = RW + 2; // entry and exit lanes of the loop must not overlap
         for (let k = kc - 30; k < kc; k++) W[k] = -LS * ease3((k - (kc - 30)) / 30);
         for (let k = kc; k < kc + 30; k++) W[k] = LS * (1 - ease3((k - kc) / 30));
-        ins[kc] = { type, R: 22, LS };
+        ins[kc] = { type, R: 26, LS };
       } else if (type === 'helix') {
         ins[kc] = { type, R: 48, Hh, side: dir };
         for (let k = kc; k < kN; k++) H[k] = end;
@@ -5069,7 +5069,7 @@ function buildRibbon(tr, rt) {
   for (const f of featK) if (f.type === 'arch') {
     let i = 0; while (i < n && KB[i] < f.k + Math.round(RIB_NEED.arch / 2 / RDS)) i++;
     const p = V(i), t = [Tf[i * 3], 0, Tf[i * 3 + 2]]; const tl = Math.hypot(t[0], t[2]) || 1; const th = [t[0] / tl, 0, t[2] / tl], sh = [th[2], 0, -th[0]];
-    const yr = p[1], B = 34;
+    const yr = p[1], B = RW + 28;
     let yc = yr + 24;
     for (let g = 0; g < 80; g++) { const ang = Math.atan2(yc + 8, B); if (-8 + (yc + 8) * (B - RW) / B - 6.5 / Math.cos(ang) > yr + 4.5) break; yc += 4; }
     const col = pick(BCOL[1]);
@@ -5091,7 +5091,7 @@ function buildRibbon(tr, rt) {
   // ---- 6. carve the city around the ribbon ----
   for (let i = 0; i < n; i += 2) {
     const p = V(i), nn = NV(i), ss = SV(i);
-    markSphere(vmadd(p, nn, 1.6), 11.5);
+    markSphere(vmadd(p, nn, 1.6), RW + 4);
     for (const off of [-RW, 0, RW]) {
       const q = vmadd(p, ss, off);
       const lr = lotAt(q[0], q[2]);
@@ -5133,30 +5133,137 @@ function ribPose(car, dt) {
   return fr;
 }
 function ribGateM(rb, u) { const fr = ribFrame(rb, u); return m4qps(m4(), qfromBasis(fr.S, fr.N, fr.T), fr.P); }
+// ---------- skyway rivals: track-space drivers with a racing line, overtakes, boost, drifts and the odd mistake ----------
+// value of a per-sample array at arc length u (st caches the search index)
+function ribAt(rb, arr, u, st) {
+  const L = rb.L, n = rb.n, cum = rb.cum, s = (((u + rb.uOff) % L) + L) % L;
+  let i = st && st.hint >= 0 && st.hint < n ? st.hint : Math.floor(s / L * n);
+  for (let g = 0; g < n && !(cum[i] <= s && cum[i + 1] > s); g++) i = cum[i] > s ? (i - 1 + n) % n : (i + 1) % n;
+  if (st) st.hint = i;
+  const t = (s - cum[i]) / Math.max(1e-6, cum[i + 1] - cum[i]); return lerp(arr[i], arr[(i + 1) % n], t);
+}
+// fastest speed per sample that the player's car can actually turn through (same steering model as Car.ribStep,
+// with a little drift headroom), then braking zones worked backwards from every corner
+function ribProfile(rb, top) {
+  const n = rb.n, v = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const k = Math.abs(rb.KG[i]); let lo = 8, hi = top * 1.35;
+    for (let it = 0; it < 18; it++) { const m = (lo + hi) / 2; const turn = 1.15 * lerp(2.3, 1.35, Math.min(1, m / top)); if (m * k <= turn) lo = m; else hi = m; }
+    v[i] = lo;
+  }
+  for (let pass = 0; pass < 2; pass++) for (let j = 2 * n - 1; j >= 0; j--) {
+    const i = j % n, nx = (i + 1) % n, ds = rb.cum[i + 1] - rb.cum[i];
+    v[i] = Math.min(v[i], Math.sqrt(v[nx] * v[nx] + 2 * 30 * ds));
+  }
+  return v;
+}
+const AI_STYLE = [ // skill spread, aggression (blocking / pushing), corner commitment, drift flair, preferred line offset
+  { sk: 0.035, ag: 0.7, ck: 1.02, dr: 1.0, lo: -1.5 },
+  { sk: 0.02, ag: 0.3, ck: 0.98, dr: 0.6, lo: 1.0 },
+  { sk: 0.0, ag: 0.9, ck: 1.05, dr: 1.3, lo: 0 },
+  { sk: -0.015, ag: 0.2, ck: 0.97, dr: 0.4, lo: 2.0 },
+  { sk: -0.03, ag: 0.5, ck: 1.0, dr: 0.8, lo: -2.0 },
+];
+const GRID = [[-8, -4.5], [-8, 4.5], [-19, -4.5], [-19, 4.5], [-30, 4.5]]; // player starts at (-30, -4.5)
+function makeRivalsRib(rb, S) {
+  const D = SAVE.settings.diff || 0, base = [0.9, 0.96, 1.01][D];
+  return AI_IDS.map((id, i) => {
+    const spec = carSpec(id); if (!spec.mesh) prepareCarMesh(spec);
+    const st = AI_STYLE[i];
+    return {
+      spec, name: spec.name, st, s: GRID[i][0], x: GRID[i][1], lane: GRID[i][1], vx: 0, v: 0, psi: 0, roll: 0,
+      skill: base + st.sk, acc: S.acc * (0.95 + Math.random() * 0.1), boost: 40, boosting: false, react: 0.12 + Math.random() * 0.35,
+      wander: Math.random() * 100, passT: 0, passX: 0, errT: 6 + Math.random() * 10, ckBoost: 0, scrapeT: 0,
+      hint: -1, h1: { hint: -1 }, h2: { hint: -1 }, h3: { hint: -1 }, spin: 0, q: qident(), done: false, finishT: 0, y: 0, fallT: 0,
+    };
+  });
+}
 function updateRivalsRib(dt, race, car) {
-  const rb = race.rt, ps = race.total;
+  const rb = race.rt, L = rb.L, pst = car.rib, top = car.S.top, lim = RW - 1.4;
+  const racers = race.ai.map(a => ({ s: a.s, x: a.x, v: a.v, a })).concat([{ s: pst.u, x: pst.x, v: pst.vT, me: true }]);
+  if (race.countdown <= 0) race.goT = (race.goT || 0) + dt;
   for (const a of race.ai) {
-    if (a.done) a.v = damp(a.v, 18, 1, dt);
-    const sm = ((a.s % rb.L) + rb.L) % rb.L;
-    let dc = 1e9; for (const cs of rb.cornerS) { let d = cs - sm; if (d < -20) d += rb.L; if (d >= -6 && d < dc) dc = d; }
-    let tgt = Math.min(a.vmax, Math.sqrt(30 * 30 + 2 * 24 * Math.max(0, dc - 8)));
-    const gap = a.s - ps; if (!a.done && race.started) { if (gap > 60) tgt *= 0.9; else if (gap < -120) tgt *= 1.1; }
-    if (race.countdown > 0) tgt = 0;
-    a.v += clamp(tgt - a.v, -30 * dt, 16 * dt); a.s += a.v * dt;
-    a.lane = damp(a.lane, a.laneT, 1.5, dt);
+    const sty = a.st;
+    // ---- longitudinal: profile speed ahead, personal top speed, boost, slipstream ----
+    const vtop = top * a.skill * (a.boosting ? 1.2 : 1);
+    const vHere = ribAt(rb, race.vprof, a.s, a), vAhead = ribAt(rb, race.vprof, a.s + Math.max(10, a.v * 0.35), a.h1);
+    let tgt = Math.min(vtop, Math.min(vHere, vAhead) * (sty.ck + a.ckBoost));
+    let draft = false, ahead = null, aheadD = 1e9;
+    for (const o of racers) {
+      if (o.a === a) continue; const du = o.s - a.s, dx = o.x - a.x;
+      if (du > 0 && du < 30 && Math.abs(dx) < 3.2 && du < aheadD) { ahead = o; aheadD = du; }
+      if (du > 4 && du < 26 && Math.abs(dx) < 2.6) draft = true;
+    }
+    if (draft) tgt *= 1.04;
+    const gap = a.s - pst.u; if (!a.done && race.started) { const D = SAVE.settings.diff || 0; tgt *= gap > 0 ? 1 - clamp((gap - 40) / 400, 0, [0.16, 0.11, 0.05][D]) : 1 + clamp((-gap - 60) / 500, 0, [0.04, 0.07, 0.1][D]); } // keep the pack around the player (less mercy on hard)
+    if (a.done) tgt = 24;
+    if (race.countdown > 0 || (race.goT || 0) < a.react) tgt = 0;
+    if (tgt > a.v) a.v += a.acc * (1 - Math.pow(clamp(a.v / Math.max(vtop, 1), 0, 1), 2.2)) * dt * (a.boosting ? 1.4 : 1);
+    else a.v -= Math.min(a.v - tgt, 32 * dt);
+    // boost on straights when behind, or just because
+    const kAhead = Math.abs(ribAt(rb, rb.KG, a.s + 60, a.h2)) + Math.abs(rb.KG[a.h1.hint] || 0);
+    if (a.boosting) { a.boost -= 26 * dt; if (a.boost <= 0 || kAhead > 0.01) a.boosting = false; }
+    else { a.boost = Math.min(100, a.boost + 7 * dt); if (race.started && a.boost > 45 && kAhead < 0.004 && (gap < 0 || Math.random() < 0.004)) a.boosting = true; }
+    // ---- mistakes: now and then a driver carries too much speed into the next corner ----
+    a.errT -= dt; if (a.errT <= 0) { a.errT = 8 + Math.random() * 14 / Math.max(0.5, a.skill); if (Math.random() < 0.55) a.ckBoost = 0.08 + Math.random() * 0.08; }
+    if (a.ckBoost > 0) a.ckBoost = Math.max(0, a.ckBoost - dt * 0.04);
+    // ---- lateral: racing line (outside before, inside at the apex), overtakes, blocking, wander ----
+    const k1 = ribAt(rb, rb.KG, a.s + 18, a.h2), k2 = ribAt(rb, rb.KG, a.s + 70, a.h3);
+    const m1 = Math.min(1, Math.abs(k1) * 45), m2 = Math.min(1, Math.abs(k2) * 45);
+    let xt = Math.sign(k1) * m1 * (lim - 1) + (1 - m1) * (-Math.sign(k2) * m2 * (lim - 2)) + sty.lo * (1 - m1);
+    a.wander += dt * 0.3; xt += Math.sin(a.wander * 1.7) * 1.2;
+    a.passT -= dt;
+    if (ahead && a.v > ahead.v - 2 && a.passT <= 0) { a.passX = clamp(ahead.x > 0 ? ahead.x - 5 : ahead.x + 5, -lim, lim); a.passT = 1.6; }
+    if (a.passT > 0) xt = a.passX;
+    const pdu = a.s - pst.u; if (sty.ag > 0.6 && pdu > 3 && pdu < 22 && race.started) xt = lerp(xt, pst.x, (sty.ag - 0.6) * 1.6); // defend the line
+    xt = clamp(xt, -lim, lim);
+    let ax = clamp((xt - a.x) * 5 - a.vx * 3.2, -16, 16);
+    const kh = rb.KG[a.hint] || 0;
+    if (a.v > vHere * 1.03) ax -= Math.sign(kh) * (a.v - vHere) * 2.2; // understeer: a too-fast car slides wide
+    a.vx += ax * dt; a.x += a.vx * dt;
+    if (Math.abs(a.x) > lim) {
+      const sg = Math.sign(a.x); a.x = sg * lim; if (a.vx * sg > 0) a.vx = -a.vx * 0.3;
+      a.v *= 1 - 0.6 * dt; a.scrapeT -= dt;
+      if (a.scrapeT <= 0) { a.scrapeT = 0.08; const fr = ribFrame(rb, a.s, { hint: a.hint }); emit(vadd(vmadd(fr.P, fr.S, a.x + sg * 1.6), vscale(fr.N, 0.5)), vadd(vscale(fr.T, a.v * 0.6), vscale(fr.N, rnd(1, 4))), [1, 0.75, 0.35], 0.09, 0.35, { g: 20, streak: 0.02 }); }
+    }
+    a.s += a.v * dt;
+    // ---- pose: yaw from lateral motion + a drift angle in hard corners, body roll ----
+    const drift = Math.sign(kh) * clamp(Math.abs(kh) * a.v * a.v / 120, 0, 0.42) * sty.dr;
+    a.psi = damp(a.psi, Math.atan2(a.vx, Math.max(a.v, 4)) + drift, 6, dt);
+    a.roll = damp(a.roll, -clamp(ax / 40, -0.08, 0.08), 6, dt);
     const fr = ribFrame(rb, a.s, a);
-    const p = vmadd(fr.P, fr.S, a.lane);
-    a.x = p[0]; a.y = p[1]; a.z = p[2]; a.N = fr.N;
-    a.q = qfromBasis(vcross(fr.N, fr.T), fr.N, fr.T);
+    const p = vmadd(fr.P, fr.S, a.x);
+    a.x3 = p; a.N = fr.N;
+    const f3 = vnorm(vadd(vscale(fr.T, Math.cos(a.psi)), vscale(fr.S, Math.sin(a.psi))));
+    a.q = qmul(qfromBasis(vcross(fr.N, f3), fr.N, f3), qaxis([0, 0, 1], a.roll));
     a.spin += a.v / 0.37 * dt;
-    const st = car.rib; const du = a.s - st.u, dx = st.x - a.lane;
-    if (Math.abs(du) < 4.4 && Math.abs(dx) < 2.5 && race.countdown <= 0) {
-      const sg = Math.sign(dx) || 1;
-      st.x += sg * (2.5 - Math.abs(dx)) * 0.6; st.vS += sg * 4;
-      a.laneT = clamp(a.lane - sg * 3.5, -5.5, 5.5);
-      if (!a.bumpT || GAME.time - a.bumpT > 0.6) { a.bumpT = GAME.time; AUDIO.impact(0.3); GAME.shake = Math.max(GAME.shake, 0.3); for (let i = 0; i < 10; i++) emit(vmadd(car.pos, fr.S, -sg * 1.8), vadd(vscale(fr.N, rnd(1, 5)), [rnd(-6, 6), rnd(-2, 2), rnd(-6, 6)]), [1, .7, .3], 0.1, 0.4, { g: 20, streak: 0.02 }); }
-    } else if (Math.abs(du) < 10 && Math.abs(du) > 4 && Math.random() < 0.02) a.laneT = pick([-5, -2, 2, 5]);
-    if (!a.done && a.s >= rb.L * race.laps) { a.done = true; a.finishT = race.t; race.finished.push(a); }
+    if (a.boosting && Math.random() < 0.6) emit(vadd(vmadd(p, f3, -2.4), vscale(fr.N, 0.6)), vadd(vscale(f3, a.v * 0.7), vscale(f3, -12)), [0.35, 0.65, 1], 0.4, 0.15, { drag: 3 });
+    // legacy fields used by HUD tags / drawing
+    a.y = p[1]; a.xw = p[0]; a.zw = p[2];
+    if (!a.done && a.s >= L * race.laps) { a.done = true; a.finishT = race.t; race.finished.push(a); }
+  }
+  // ---- contacts: rivals with each other, and with the player ----
+  for (let i = 0; i < race.ai.length; i++) for (let j = i + 1; j < race.ai.length; j++) {
+    const A = race.ai[i], B = race.ai[j], du = B.s - A.s, dx = B.x - A.x;
+    if (Math.abs(du) < 4.4 && Math.abs(dx) < 2.3) {
+      const sg = Math.sign(dx) || 1, push = (2.3 - Math.abs(dx)) * 0.5; A.x -= sg * push; B.x += sg * push; A.vx -= sg * 2; B.vx += sg * 2;
+      const [rear, front] = du > 0 ? [A, B] : [B, A]; if (rear.v > front.v) { const m = (rear.v + front.v) / 2; rear.v = m - 0.8; front.v = m + 0.4; }
+    }
+  }
+  if (race.countdown <= 0) for (const a of race.ai) {
+    const du = a.s - pst.u, dx = pst.x - a.x;
+    if (Math.abs(du) < 4.4 && Math.abs(dx) < 2.4) {
+      const sg = Math.sign(dx) || 1, push = 2.4 - Math.abs(dx);
+      pst.x += sg * push * 0.55; a.x -= sg * push * 0.45; pst.vS += sg * 3.5 * (0.6 + a.st.ag * 0.6); a.vx -= sg * 3;
+      if (Math.abs(dx) < 1.6) { // nose-to-tail: the faster rear car gives up speed, the front one gets shoved
+        if (du > 0 && pst.vT > a.v) { const m = (pst.vT + a.v) / 2; pst.vT = m - 1; a.v = m + 1; }
+        else if (du < 0 && a.v > pst.vT) { const m = (pst.vT + a.v) / 2; a.v = m - 1; pst.vT = m + 1.5; }
+      }
+      if (!a.bumpT || GAME.time - a.bumpT > 0.5) {
+        a.bumpT = GAME.time; AUDIO.impact(0.25); GAME.shake = Math.max(GAME.shake, 0.3);
+        const fr = pst.fr || ribFrame(rb, pst.u); for (let i = 0; i < 10; i++) emit(vmadd(car.pos, fr.S, -sg * 1.6), vadd(vscale(fr.N, rnd(1, 5)), [rnd(-6, 6), rnd(-2, 2), rnd(-6, 6)]), [1, .7, .3], 0.1, 0.4, { g: 20, streak: 0.02 });
+      }
+    }
   }
 }
 function updateRaceProgressRib(dt, race, car) {
