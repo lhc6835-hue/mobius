@@ -634,14 +634,15 @@ vec4 ribT(int i,int k){ return texelFetch(uRibTex,ivec2(i%1024,(i/1024)*3+k),0);
 void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float cum){
   vec4 a=ribT(i,0), b=ribT(i,1), c=ribT(i,2); P=a.xyz; cum=a.w; N=b.xyz; S=c.xyz; Tt=cross(S,N);
   float wv=b.w, ws=c.w; const float TP=6.2831853;
-  float roll=wv*(0.34*sin(cum*TP/260.-uTime*1.3)+0.22*sin(cum*TP/610.+uTime*0.7));
-  float dy=wv*6.*sin(cum*TP/340.+uTime*1.1), sx=ws*5.*sin(cum*TP/450.-uTime*0.8);
+  #define WVL(l) (cum*TP*max(1.,floor(uRibL/(l)+0.5))/uRibL)
+  float roll=wv*(0.34*sin(WVL(260.)-uTime*1.3)+0.22*sin(WVL(610.)+uTime*0.7));
+  float dy=wv*6.*sin(WVL(340.)+uTime*1.1), sx=ws*5.*sin(WVL(450.)-uTime*0.8);
   // far from the player the whole ribbon billows like cloth and settles as you approach (smooth along the road)
   float du=mod(cum-uPU,uRibL); float ff=du<uRibL*0.5?smoothstep(260.,750.,du):smoothstep(150.,450.,uRibL-du);
-  roll+=ff*1.3*sin(cum*TP/520.+uTime*0.55);
-  sx+=ff*ff*55.*sin(cum*TP/700.-uTime*0.4);
-  float lift=ff*(55.+35.*sin(cum*TP/900.+uTime*0.35));
-  P+=vec3(S.x,0.,S.z)*sx+vec3(0.,lift,0.)+N*dy;
+  roll+=ff*1.3*sin(WVL(520.)+uTime*0.55);
+  float lift=ff*(55.+35.*sin(WVL(900.)+uTime*0.35));
+  vec3 far=vec3(ff*ff*55.*sin(WVL(700.)-uTime*0.4),lift,ff*ff*55.*cos(WVL(820.)+uTime*0.3)); // world-fixed directions: smooth through loops and rolls
+  P+=vec3(S.x,0.,S.z)*sx+N*dy+far;
   float cr=cos(roll), sr=sin(roll); vec3 N2=N*cr-S*sr; S=S*cr+N*sr; N=N2;
 }
 ${BEND_GLSL}
@@ -5021,7 +5022,7 @@ function raceResults() {
 const RW = 11, RDS = 1.5; // deck half-width: room for three cars abreast
 const NOANOM = new Uint8Array(N * N); // tiles near the ribbon: no far-off anomalies there
 const RIB_KO = { loop: '루프', helix: '나선 회전', cork: '코크스크루', twist: '트위스트', invert: '천장 주행', roll2: '더블 롤', arch: '교차 빌딩' };
-const RIB_NEED = { loop: 150, helix: 40, cork: 150, twist: 80, invert: 240, roll2: 190, arch: 50 };
+const RIB_NEED = { loop: 150, helix: 40, cork: 200, twist: 120, invert: 260, roll2: 260, arch: 50 };
 const ease3 = t => { t = clamp(t, 0, 1); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
 const bump01 = (t, e) => smooth(0, e, t) * (1 - smooth(1 - e, 1, t));
 function buildRibbon(tr, rt) {
@@ -5104,10 +5105,11 @@ function buildRibbon(tr, rt) {
         for (let k = kc - half; k < kc + half; k++) {
           const t = (k - (kc - half)) / (2 * half);
           let rl = 0, r = 0;
-          if (type === 'cork') { rl = TAU * ease3(t); r = 8 * bump01(t, 0.18); }
-          else if (type === 'twist') { rl = TAU * ease3(t); }
-          else if (type === 'roll2') { rl = 2 * TAU * ease3(t); r = 4.5 * bump01(t, 0.15); }
-          else if (type === 'invert') { rl = t < 0.2 ? PI * ease3(t / 0.2) : t < 0.8 ? PI : PI + PI * ease3((t - 0.8) / 0.2); r = 7 * bump01(t, 0.18); }
+          const es = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }; // peak rate 1.5x the average: no sudden snap of the deck
+          if (type === 'cork') { rl = TAU * es(t); r = 8 * bump01(t, 0.18); }
+          else if (type === 'twist') { rl = TAU * es(t); }
+          else if (type === 'roll2') { rl = 2 * TAU * es(t); r = 4.5 * bump01(t, 0.15); }
+          else if (type === 'invert') { rl = t < 0.28 ? PI * es(t / 0.28) : t < 0.72 ? PI : PI + PI * es((t - 0.72) / 0.28); r = 7 * bump01(t, 0.22); }
           ROLL[k] = rl * dir; CR[k] = r;
         }
       }
@@ -5199,10 +5201,11 @@ function buildRibbon(tr, rt) {
       if (KB[i] < startK || KB[i] > nb - endK) mask[i] = Math.min(mask[i], 0.35);
       cl[i] = clamp((Pf[i * 3 + 1] - 1.2 - RW * Math.abs(Sf[i * 3 + 1]) - 3) / 10, 0, 1);
     }
-    const box = (src, out) => { const R2 = 40; let acc = 0; for (let j = -R2; j <= R2; j++) acc += src[(j + n) % n]; for (let i = 0; i < n; i++) { out[i] = acc / (2 * R2 + 1); acc += src[(i + R2 + 1) % n] - src[(i - R2 + n) % n]; } };
+    const R2 = 25;
+    const box = (src, out) => { let acc = 0; for (let j = -R2; j <= R2; j++) acc += src[(j + n) % n]; for (let i = 0; i < n; i++) { out[i] = acc / (2 * R2 + 1); acc += src[(i + R2 + 1) % n] - src[(i - R2 + n) % n]; } };
+    const erode = src => { const o = new Float32Array(n); for (let i = 0; i < n; i++) { let m = 1; for (let j = -R2; j <= R2; j++) m = Math.min(m, src[(i + j + n) % n]); o[i] = m; } return o; };
     const mv = new Float32Array(n); for (let i = 0; i < n; i++) mv[i] = Math.min(mask[i], cl[i]);
-    box(mv, WV); box(mask, WS);
-    for (let i = 0; i < n; i++) { WV[i] = Math.min(WV[i], mask[i] > 0 ? 1 : 0, cl[i]); WS[i] = Math.min(WS[i], mask[i] > 0 ? 1 : 0); }
+    box(erode(mv), WV); box(erode(mask), WS); // erode-then-blur: smooth ramps that stay inside the allowed region
   }
   // ribbon frames for the GPU: per sample 3 texels (P,cum) (N,wv) (S,ws), 1024 samples per row band
   const rows = Math.ceil(n / 1024), td = new Float32Array(1024 * rows * 3 * 4);
@@ -5314,12 +5317,13 @@ function ribFrame(rb, u, st) {
     let du = c - pu; du = ((du % rb.L) + rb.L) % rb.L;
     const ff = du < rb.L * 0.5 ? smooth(260, 750, du) : smooth(150, 450, rb.L - du);
     if (wv > 1e-3 || ws > 1e-3 || ff > 1e-3) {
-      let roll = wv * (0.34 * Math.sin(c * TAU / 260 - tm * 1.3) + 0.22 * Math.sin(c * TAU / 610 + tm * 0.7));
-      const dy = wv * 6 * Math.sin(c * TAU / 340 + tm * 1.1); let sx = ws * 5 * Math.sin(c * TAU / 450 - tm * 0.8);
+      const ph = l => c * TAU * Math.max(1, Math.floor(rb.L / l + 0.5)) / rb.L; // wavelengths that tile the lap exactly
+      let roll = wv * (0.34 * Math.sin(ph(260) - tm * 1.3) + 0.22 * Math.sin(ph(610) + tm * 0.7));
+      const dy = wv * 6 * Math.sin(ph(340) + tm * 1.1); let sx = ws * 5 * Math.sin(ph(450) - tm * 0.8);
       // far field: the ribbon billows and settles as the player approaches (same as ribLive)
-      roll += ff * 1.3 * Math.sin(c * TAU / 520 + tm * 0.55); sx += ff * ff * 55 * Math.sin(c * TAU / 700 - tm * 0.4);
-      const lift = ff * (55 + 35 * Math.sin(c * TAU / 900 + tm * 0.35));
-      Pd = vadd(vadd(P, [S[0] * sx, lift, S[2] * sx]), vscale(Nn, dy)); // sway stays horizontal so banked decks don't sink
+      roll += ff * 1.3 * Math.sin(ph(520) + tm * 0.55);
+      const lift = ff * (55 + 35 * Math.sin(ph(900) + tm * 0.35)), fx = ff * ff * 55 * Math.sin(ph(700) - tm * 0.4), fz = ff * ff * 55 * Math.cos(ph(820) + tm * 0.3);
+      Pd = vadd(vadd(P, [S[0] * sx + fx, lift, S[2] * sx + fz]), vscale(Nn, dy)); // near sway stays horizontal so banked decks don't sink
       const cr = Math.cos(roll), sr = Math.sin(roll), N2 = vsub(vscale(Nn, cr), vscale(S, sr)); S = vadd(vscale(S, cr), vscale(Nn, sr)); Nn = N2;
     }
   }
