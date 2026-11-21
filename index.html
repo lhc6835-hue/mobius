@@ -2734,7 +2734,7 @@ class Collapse {
   }
   update(dt) {
     this.t += dt; const t = this.t;
-    if (!this.fired && t > this.warn) { this.fired = true; if (this.tiles.length) { AUDIO.collapse(); EVENTS.push({ type: 'collapse', at: [this.tiles[0][0] * T, 0, this.tiles[0][1] * T] }); } }
+    if (!this.fired && t > this.warn) { this.fired = true; if (this.tiles.length) { AUDIO.collapse([this.tiles[0][0] * T, 0, this.tiles[0][1] * T]); EVENTS.push({ type: 'collapse', at: [this.tiles[0][0] * T, 0, this.tiles[0][1] * T] }); } }
     for (const tt of this.tiles) {
       const [ix, iz, del] = tt;
       if (t < this.warn + del) { const g = smooth(0, this.warn, t); tsSet(ix, iz, 3, g); tsSet(ix, iz, 5, 1); tsSet(ix, iz, 1, Math.sin(t * 50 + ix) * 0.05 * g); }
@@ -2760,7 +2760,7 @@ class Rise {
   }
   update(dt) {
     this.t += dt; const t = this.t;
-    if (!this.fired && t > this.warn) { this.fired = true; AUDIO.rise(); }
+    if (!this.fired && t > this.warn) { this.fired = true; if (this.tiles.length) { const c = this.tiles[this.tiles.length >> 1]; AUDIO.rise([(c[0] + 0.5) * T, 0, (c[1] + 0.5) * T]); } }
     for (const [ix, iz, del, h] of this.tiles) {
       let dy = 0, gl = 0;
       const tt = t - this.warn - del;
@@ -3812,9 +3812,17 @@ const AUDIO = {
     else this.play(this.any('s_hit0', 's_hit1', 's_hit2'), 0.35 + 0.6 * k, this.vr(0.12));
   },
   smash() { this.play(this.any('s_smash0', 's_smash1'), 0.5, this.vr(0.12)); },
-  fold(at) { this.play('s_fold', 0.7, this.vr(0.05)); this.play('s_rumble', 0.45, 0.9); },
-  collapse() { this.play('s_collapse0', 0.8, this.vr()); this.play('s_collapse1', 0.6, this.vr(), 0.18); this.play('s_rumble', 0.4, 0.8); },
-  rise() { this.play('s_rise', 0.6, this.vr(0.1)); this.play('s_force', 0.25, 0.6); },
+  // world events fade with distance from the camera (silent past R) and far ones don't stack up
+  near3(at, R = 650) {
+    if (!this.ok) return 0; if (!at) return 1;
+    const im = imageOf(at[0], at[2], RND.cam[0], RND.cam[2]); const d = Math.hypot(im[0] - RND.cam[0], im[1] - RND.cam[2]);
+    const g = Math.pow(clamp(1 - d / R, 0, 1), 1.5); if (g < 0.04) return 0;
+    const t = this.ctx.currentTime; if (g < 0.5 && t - (this.farT || 0) < 0.6) return 0; if (g < 0.5) this.farT = t;
+    return g;
+  },
+  fold(at) { const g = this.near3(at); if (!g) return; const r = 0.85 + g * 0.15; this.play('s_fold', 0.7 * g, r * this.vr(0.05)); this.play('s_rumble', 0.45 * g, 0.9 * r); },
+  collapse(at) { const g = this.near3(at); if (!g) return; this.play('s_collapse0', 0.8 * g, this.vr()); this.play('s_collapse1', 0.6 * g, this.vr(), 0.18); this.play('s_rumble', 0.4 * g, 0.8); },
+  rise(at) { const g = this.near3(at); if (!g) return; this.play('s_rise', 0.6 * g, (0.85 + g * 0.15) * this.vr(0.1)); this.play('s_force', 0.25 * g, 0.6); },
   convergence() { this.play('s_conv', 1, 1); this.play('s_rumble', 0.7, 0.7); },
   whoosh() { this.play(this.any('s_whoosh0', 's_whoosh1'), 0.6, this.vr(0.1)); this.play('s_whoosh2', 0.35, this.vr(0.05)); },
   turbo(l) { this.play('s_turbo' + clamp(l || 1, 1, 3), 0.55); },
