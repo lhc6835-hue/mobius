@@ -636,7 +636,13 @@ void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float c
   float wv=b.w, ws=c.w; const float TP=6.2831853;
   float roll=wv*(0.34*sin(cum*TP/260.-uTime*1.3)+0.22*sin(cum*TP/610.+uTime*0.7));
   float dy=wv*6.*sin(cum*TP/340.+uTime*1.1), sx=ws*5.*sin(cum*TP/450.-uTime*0.8);
-  P+=vec3(S.x,0.,S.z)*sx+N*dy; float cr=cos(roll), sr=sin(roll); vec3 N2=N*cr-S*sr; S=S*cr+N*sr; N=N2;
+  // far from the player the whole ribbon billows like cloth and settles as you approach (smooth along the road)
+  float du=mod(cum-uPU,uRibL); float ff=du<uRibL*0.5?smoothstep(260.,750.,du):smoothstep(150.,450.,uRibL-du);
+  roll+=ff*1.3*sin(cum*TP/520.+uTime*0.55);
+  sx+=ff*ff*55.*sin(cum*TP/700.-uTime*0.4);
+  float lift=ff*(55.+35.*sin(cum*TP/900.+uTime*0.35));
+  P+=vec3(S.x,0.,S.z)*sx+vec3(0.,lift,0.)+N*dy;
+  float cr=cos(roll), sr=sin(roll); vec3 N2=N*cr-S*sr; S=S*cr+N*sr; N=N2;
 }
 ${BEND_GLSL}
 const float WK=6.28318531/3840.;
@@ -650,17 +656,9 @@ void main(){
     mat4 im=mat4(iR0.x,iR1.x,iR2.x,0., iR0.y,iR1.y,iR2.y,0., iR0.z,iR1.z,iR2.z,0., iR0.w,iR1.w,iR2.w,1.);
     p=(im*vec4(p,1)).xyz; n=mat3(im)*n; ext=iExt;
   } else { p=(uModel*vec4(p,1)).xyz; n=mat3(uModel)*n; }
-  if(uRibOn==1 && ext.x<-1.5){ // skyway vertex: rebuilt from the live frame, scattered into fragments away from the player
+  if(uRibOn==1 && ext.x<-1.5){ // skyway vertex: rebuilt from the live (and, far away, billowing) frame
     int i=int(ext.y+0.5); vec3 P,N,S,Tt; float cum; ribLive(i,P,N,S,Tt,cum);
     p=P+S*ext.z+N*ext.w; n=normalize(S*aNor.x+N*aNor.y+Tt*aNor.z);
-    float du=mod(cum-uPU,uRibL); float f=du<uRibL*0.5?smoothstep(380.,700.,du):smoothstep(130.,340.,uRibL-du);
-    if(f>0.001){
-      int g=i/6; float gh=float(g); vec3 h3=fract(sin(vec3(gh*12.9898,gh*78.233,gh*37.719))*43758.5453);
-      vec3 C,Nc,Sc,Tc; float cc; ribLive(min(g*6+3,uRibN-1),C,Nc,Sc,Tc,cc);
-      vec3 ax=normalize(h3-0.5+vec3(0.,0.002,0.)); float ang=f*(1.5+3.*h3.x)+uTime*0.35*f*(h3.y-0.5);
-      float ca=cos(ang), sa=sin(ang); vec3 d=p-C; d=d*ca+cross(ax,d)*sa+ax*dot(ax,d)*(1.-ca); n=n*ca+cross(ax,n)*sa+ax*dot(ax,n)*(1.-ca);
-      p=C+d+((h3-0.5)*vec3(150.,90.,150.)+vec3(0.,40.,0.))*f*f;
-    }
   }
   vec4 ts=vec4(0);
   vLP=p;
@@ -5311,11 +5309,17 @@ function ribFrame(rb, u, st) {
   let S = vcross(Nn, T), Pd = P;
   if (rb.WV) { // living deck — same formula as ribLive() in WORLD_VS
     const wv = lerp(rb.WV[i], rb.WV[j], t), ws = lerp(rb.WS[i], rb.WS[j], t);
-    if (wv > 1e-3 || ws > 1e-3) {
-      const tm = GAME.time, c = rb.cum[i] + (rb.cum[i + 1] - rb.cum[i]) * t;
-      const roll = wv * (0.34 * Math.sin(c * TAU / 260 - tm * 1.3) + 0.22 * Math.sin(c * TAU / 610 + tm * 0.7));
-      const dy = wv * 6 * Math.sin(c * TAU / 340 + tm * 1.1), sx = ws * 5 * Math.sin(c * TAU / 450 - tm * 0.8);
-      Pd = vadd(vadd(P, [S[0] * sx, 0, S[2] * sx]), vscale(Nn, dy)); // sway stays horizontal so banked decks don't sink
+    const tm = GAME.time, c = rb.cum[i] + (rb.cum[i + 1] - rb.cum[i]) * t;
+    const pu = ((((GAME.car && GAME.car.rib ? GAME.car.rib.u : 0) + rb.uOff) % rb.L) + rb.L) % rb.L;
+    let du = c - pu; du = ((du % rb.L) + rb.L) % rb.L;
+    const ff = du < rb.L * 0.5 ? smooth(260, 750, du) : smooth(150, 450, rb.L - du);
+    if (wv > 1e-3 || ws > 1e-3 || ff > 1e-3) {
+      let roll = wv * (0.34 * Math.sin(c * TAU / 260 - tm * 1.3) + 0.22 * Math.sin(c * TAU / 610 + tm * 0.7));
+      const dy = wv * 6 * Math.sin(c * TAU / 340 + tm * 1.1); let sx = ws * 5 * Math.sin(c * TAU / 450 - tm * 0.8);
+      // far field: the ribbon billows and settles as the player approaches (same as ribLive)
+      roll += ff * 1.3 * Math.sin(c * TAU / 520 + tm * 0.55); sx += ff * ff * 55 * Math.sin(c * TAU / 700 - tm * 0.4);
+      const lift = ff * (55 + 35 * Math.sin(c * TAU / 900 + tm * 0.35));
+      Pd = vadd(vadd(P, [S[0] * sx, lift, S[2] * sx]), vscale(Nn, dy)); // sway stays horizontal so banked decks don't sink
       const cr = Math.cos(roll), sr = Math.sin(roll), N2 = vsub(vscale(Nn, cr), vscale(S, sr)); S = vadd(vscale(S, cr), vscale(Nn, sr)); Nn = N2;
     }
   }
