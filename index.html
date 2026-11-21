@@ -579,6 +579,36 @@ vec3 skyCol(vec3 d){
   return c;
 }`;
 
+const BEND_GLSL = `
+uniform float uBend, uBendA, uBendR;
+void curlAx(inout float s, inout float y, inout float ns, inout float ny, float s0, float R){
+  float as=abs(s); if(as<=s0) return;
+  float sg=s<0.?-1.:1.; float e=as-s0;
+  const float amax=2.75; float a=min(e/R,amax); float ex=max(e-amax*R,0.);
+  float ca=cos(a), sa=sin(a);
+  float bs=s0+R*sa+ca*ex, by=R*(1.-ca)+sa*ex;
+  float h=y*(1.-0.3*a/amax);
+  s=sg*(bs-sa*h); y=by+ca*h;
+  float n0=ns*sg, n1=ny;
+  ns=sg*(n0*ca-n1*sa); ny=n0*sa+n1*ca;
+}
+void bendW(inout vec3 p, inout vec3 n, vec3 cam){
+  if(uBend<=0.) return;
+  vec2 rel=p.xz-cam.xz;
+  vec2 A=vec2(cos(uBendA),sin(uBendA)), B=vec2(-A.y,A.x);
+  float s=dot(rel,A), q=dot(rel,B), y=p.y;
+  float na=dot(n.xz,A), nb=dot(n.xz,B), ny=n.y;
+  float R=uBendR/uBend;
+  // corkscrew: the far city twists around the main axis
+  float tw=sign(s)*max(abs(s)-170.,0.)*0.0011*uBend;
+  curlAx(s,y,na,ny,150.,R);
+  curlAx(q,y,nb,ny,230.,R*1.85);
+  float c=cos(tw), sn=sin(tw); float yc=y-R*0.5;
+  float q2=q*c-yc*sn; yc=q*sn+yc*c; q=q2; y=yc+R*0.5;
+  float nb2=nb*c-ny*sn; ny=nb*sn+ny*c; nb=nb2;
+  p=vec3(cam.x+A.x*s+B.x*q, y, cam.z+A.y*s+B.y*q);
+  n=vec3(A.x*na+B.x*nb, ny, A.y*na+B.y*nb);
+}`;
 const WORLD_VS = `#version 300 es
 precision highp float; precision highp int;
 layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor; layout(location=2) in vec4 aCol;
@@ -588,7 +618,9 @@ uniform mat4 uVP; uniform mat4 uModel; uniform vec3 uOffset; uniform int uInst; 
 uniform highp sampler2D uTileTex;
 uniform mat4 uReg[24];
 uniform mat4 uPre;
-out vec3 vW; out vec3 vN; out vec4 vCol; out vec4 vUv; out vec4 vTile; out vec3 vLP; out float vRt;
+uniform vec3 uCam; uniform float uTime;
+${BEND_GLSL}
+out vec3 vW; out vec3 vN; out vec4 vCol; out vec4 vUv; out vec4 vTile; out vec3 vLP; out float vRt; out float vFlat;
 void main(){
   vec3 p=aPos, n=aNor; vec4 ext=aExt; vRt=0.;
   if(uInst==1){
@@ -602,6 +634,17 @@ void main(){
     vec4 a=texelFetch(uTileTex,ivec2(tc.x*2,tc.y),0);
     vec4 b=texelFetch(uTileTex,ivec2(tc.x*2+1,tc.y),0);
     ts=vec4(a.y,a.w,b.x,b.y); vRt=b.z;
+    if(uBend>0. && p.y>8. && tc.x%6!=0 && tc.y%6!=0){ // mirror-warped towers: twist + bend over
+      ivec2 lot=tc/6; vec2 lc=(vec2(lot)*6.+3.5)*20.;
+      float h=fract(sin(dot(vec2(lot),vec2(12.9898,78.233)))*43758.5453), h2=fract(h*91.7+0.31);
+      float f=smoothstep(8.,70.,p.y), hy=p.y-8.;
+      float tw=((h-0.5)*0.016+sin(uTime*0.22+h*6.283)*0.004)*hy*f*uBend;
+      vec2 d=p.xz-lc; float cs=cos(tw),sn=sin(tw);
+      p.xz=lc+vec2(d.x*cs-d.y*sn,d.x*sn+d.y*cs); n.xz=vec2(n.x*cs-n.z*sn,n.x*sn+n.z*cs);
+      float la=h2*6.283+sin(uTime*0.05+h*4.)*0.6; vec2 ld=vec2(cos(la),sin(la));
+      float lk=(h2>0.5?1.:0.3)*(0.0015+0.0007*sin(uTime*0.17+h*9.))*uBend;
+      p.xz+=ld*hy*hy*lk*f;
+    }
     if(a.z!=0.){
       float ang=a.z*p.y*0.012; vec2 c=ext.zw; vec2 d=p.xz-c; float cs=cos(ang),sn=sin(ang);
       p.xz=c+vec2(d.x*cs-d.y*sn, d.x*sn+d.y*cs); n.xz=vec2(n.x*cs-n.z*sn,n.x*sn+n.z*cs);
@@ -612,6 +655,8 @@ void main(){
     if(b.x>0.5) p=vec3(0.,-1e5,0.);
   }
   p+=uOffset;
+  vFlat=uBend>0.?length(p.xz-uCam.xz)*0.85:0.;
+  bendW(p,n,uCam);
   vec4 w=uPre*vec4(p,1.);
   vW=w.xyz; vN=mat3(uPre)*n; vCol=aCol; vUv=aUv; vTile=ts;
   gl_Position=uVP*w;
@@ -619,7 +664,7 @@ void main(){
 
 const WORLD_FS = `#version 300 es
 precision highp float; precision highp int;
-in vec3 vW; in vec3 vN; in vec4 vCol; in vec4 vUv; in vec4 vTile; in vec3 vLP; in float vRt;
+in vec3 vW; in vec3 vN; in vec4 vCol; in vec4 vUv; in vec4 vTile; in vec3 vLP; in float vRt; in float vFlat;
 uniform vec3 uCam;
 uniform sampler2D uRoad; uniform sampler2D uDetail;
 uniform vec3 uSunDir, uSunCol, uFogCol; uniform float uFogDen;
@@ -636,7 +681,7 @@ void main(){
   vec3 N=normalize(vN);
   vec3 V=normalize(uCam-vW);
   vec3 alb=vCol.rgb; float rough=0.85; float refl=0.; vec3 emi=vec3(0.); float spec=0.25;
-  float dist=length(vW-uCam);
+  float dist=max(length(vW-uCam),vFlat);
   if(mat==3){ // emissive
     float fl=1.;
     if(vUv.y>0.5) fl=0.75+0.25*sin(uTime*(3.+vUv.y*7.)+vW.x);
@@ -934,6 +979,7 @@ const PART_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aC; layout(location=1) in vec3 aA; layout(location=2) in vec3 aQ; layout(location=3) in vec4 aCol;
 uniform mat4 uVP; uniform vec3 uCam, uCR, uCU;
+${BEND_GLSL}
 out vec4 vCol; out vec2 vQ; out float vStreak;
 void main(){
   vec3 p;
@@ -942,6 +988,7 @@ void main(){
     vec3 side=normalize(cross(aA,uCam-aC));
     p=aC+aA*(q.y*0.5+0.5)+side*q.x*sz; vStreak=1.;
   } else { p=aC+(uCR*q.x+uCU*q.y)*sz; vStreak=0.; }
+  vec3 nn=vec3(0,1,0); bendW(p,nn,uCam);
   vCol=aCol; vQ=q; gl_Position=uVP*vec4(p,1.);
 }`;
 const PART_FS = `#version 300 es
@@ -956,8 +1003,9 @@ void main(){
 const DEC_VS = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aP; layout(location=1) in vec2 aU; layout(location=2) in vec4 aCol;
-uniform mat4 uVP; uniform vec3 uOffset; out vec2 vU; out vec4 vCol; out vec3 vW;
-void main(){ vU=aU; vCol=aCol; vec3 p=aP+uOffset; vW=p; gl_Position=uVP*vec4(p,1.); }`;
+uniform mat4 uVP; uniform vec3 uOffset; uniform vec3 uCam; out vec2 vU; out vec4 vCol; out vec3 vW;
+${BEND_GLSL}
+void main(){ vU=aU; vCol=aCol; vec3 p=aP+uOffset; vec3 nn=vec3(0,1,0); bendW(p,nn,uCam); vW=p; gl_Position=uVP*vec4(p,1.); }`;
 const DEC_FS = `#version 300 es
 precision highp float; in vec2 vU; in vec4 vCol; in vec3 vW; uniform int uMode; uniform vec3 uCam; uniform float uFogDen; out vec4 o;
 void main(){
@@ -1712,8 +1760,8 @@ function genCity() {
       const r = Math.hypot(cx - WS / 2, cz - WS / 2);
       let rects, hmin, hmax, styles;
       if (dist === 'downtown') { rects = subdivide(inner, R() < 0.45 ? 1 : R() < 0.7 ? 2 : 4, R, 4); const k = 1 - smooth(250, 820, r); hmin = 70 + k * 80; hmax = 130 + k * 230; styles = [0, 0, 1, 3]; }
-      else if (dist === 'old') { rects = subdivide(inner, rndR(R, 4, 9), R, 2.5); hmin = 9; hmax = 30; styles = [2, 2, 2, 1]; }
-      else { rects = subdivide(inner, rndR(R, 2, 4), R, 3); hmin = 22; hmax = 75; styles = [1, 3, 0, 1, 2]; }
+      else if (dist === 'old') { rects = subdivide(inner, rndR(R, 4, 9), R, 2.5); hmin = 12; hmax = 48; styles = [2, 2, 2, 1]; }
+      else { rects = subdivide(inner, rndR(R, 2, 4), R, 3); hmin = 30; hmax = 150; styles = [1, 3, 0, 1, 2]; }
       for (const rc of rects) {
         const h = lerp(hmin, hmax, Math.pow(R(), 1.4));
         buildBuilding(mb, rc, h, styles[Math.floor(R() * styles.length)], R, addBox, dist);
@@ -2684,14 +2732,20 @@ const DIRECTOR = {
     // ambient spectacle far away
     this.ambNext -= dt;
     if (this.ambNext <= 0) {
-      this.ambNext = active ? rnd(1.2, 2.6) / Math.min(2, 0.7 + L * 0.3) : rnd(0.8, 1.6);
-      const a = rnd(0, TAU), d = rnd(260, 700);
-      const lr = lotAt(car.pos[0] + Math.cos(a) * d, car.pos[2] + Math.sin(a) * d);
+      this.ambNext = active ? rnd(0.45, 1.0) / Math.min(2, 0.7 + L * 0.3) : rnd(0.35, 0.8);
+      const a = rnd(0, TAU), d = rnd(200, 900);
+      const ax = car.pos[0] + Math.cos(a) * d, az = car.pos[2] + Math.sin(a) * d;
+      const lr = lotAt(ax, az);
+      // keep region slots free for gameplay hazards near the player
+      const freeReg = REGIONS.reduce((n, g) => n + (g.active ? 0 : 1), 0);
+      const r = freeReg > 9 ? Math.random() : 0.5 + Math.random() * 0.5;
       if (lr) {
-        const r = Math.random();
-        if (r < 0.6) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W']), rnd(0.9, 2.9), { warn: 0.6, rise: 2.2, hold: rnd(4, 9), ret: 2.5, lift: rnd(0, 60) }));
-        else if (r < 0.8) ANOM.push(new Twist(lr, rnd(-2.5, 2.5)));
-        else ANOM.push(new Rise(rectTiles(lr), 20, 80, { warn: 0.3, hold: 5, sink: Math.random() < 0.4 }));
+        if (r < 0.5) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W', 'MX', 'MZ']), rnd(1.2, 3.1) * (Math.random() < 0.5 ? -1 : 1), { warn: 0.5, rise: 2.4, hold: rnd(6, 14), ret: 3, lift: rnd(20, 160) }));
+        else if (r < 0.75) ANOM.push(new Twist(lr, rnd(-5, 5)));
+        else ANOM.push(new Rise(rectTiles(lr), 40, 180, { warn: 0.3, hold: rnd(5, 10), sink: Math.random() < 0.35 }));
+      } else if (r < 0.5 && freeReg > 9) { // far intersections spin like gears
+        const ix = Math.round(wrapW(ax) / T / P) * P, iz = Math.round(wrapW(az) / T / P) * P;
+        ANOM.push(new Spin(ix, iz, pick([-4, -2, 2, 4])));
       }
     }
     if (!active) return;
@@ -2753,6 +2807,7 @@ function rectTiles(r) { const out = []; tilesRect(r[0], r[1], r[2], r[3], (ix, i
 const RND = {
   W: 0, H: 0, scale: 1, view: m4(), proj: m4(), vp: m4(), invVP: m4(), cam: [0, 0, 0], camR: [1, 0, 0], camU: [0, 1, 0], camF: [0, 0, -1],
   fov: 70, flipH: 1700, flipFade: 0.7, tint: [1, 1, 1], fogDen: 0.0012, viewDist: 1000, warp: 0,
+  bend: 1, bendT: 1, bendA: 0.6, bendR: 280,
   post: { speed: 0, shard: 0, kal: 0, ca: 0.3, grain: 0.035, sat: 1.05, vig: 0.55, trans: 0, warp: 0, flash: [1, 1, 1, 0], exposure: 1.0, focus: [0.5, 0.5] },
   pls: new Float32Array(48), plc: new Float32Array(48), dynLights: [],
   head: { pos: [0, 0, 0], dir: [0, 0, 1], on: 1 },
@@ -2881,8 +2936,27 @@ function gatherLights(focus) {
 }
 // ---------- main render ----------
 const SKY = { top: [0.02, 0.012, 0.05], hor: [0.22, 0.08, 0.2], low: [0.01, 0.005, 0.02], coreCol: [1.0, 0.45, 0.25], sun: [0.35, 0.25, 0.4], sunDir: vnorm([0.3, 0.5, 0.2]) };
+// JS mirror of BEND_GLSL bendW (positions only) for screen-space overlays
+function bendPt(p) {
+  if (RND.bend <= 0) return p;
+  const cam = RND.cam, A = [Math.cos(RND.bendA), Math.sin(RND.bendA)], B = [-A[1], A[0]];
+  const rx = p[0] - cam[0], rz = p[2] - cam[2]; let s = rx * A[0] + rz * A[1], q = rx * B[0] + rz * B[1], y = p[1];
+  const R = RND.bendR / RND.bend;
+  const tw = Math.sign(s) * Math.max(Math.abs(s) - 170, 0) * 0.0011 * RND.bend;
+  const curl = (s, y, s0, R) => {
+    const as = Math.abs(s); if (as <= s0) return [s, y];
+    const sg = s < 0 ? -1 : 1, e = as - s0, amax = 2.75, a = Math.min(e / R, amax), ex = Math.max(e - amax * R, 0);
+    const ca = Math.cos(a), sa = Math.sin(a), h = y * (1 - 0.3 * a / amax);
+    return [sg * (s0 + R * sa + ca * ex - sa * h), R * (1 - ca) + sa * ex + ca * h];
+  };
+  [s, y] = curl(s, y, 150, R); [q, y] = curl(q, y, 230, R * 1.85);
+  const c = Math.cos(tw), sn = Math.sin(tw); let yc = y - R * 0.5; const q2 = q * c - yc * sn; yc = q * sn + yc * c; q = q2; y = yc + R * 0.5;
+  return [cam[0] + A[0] * s + B[0] * q, y, cam[2] + A[1] * s + B[1] * q];
+}
+function setBend(u, on) { gl.uniform1f(u.uBend, on ? RND.bend : 0); gl.uniform1f(u.uBendA, RND.bendA); gl.uniform1f(u.uBendR, RND.bendR); }
 function setWorldCommon(prog, time) {
   const u = prog.u;
+  setBend(u, 1);
   gl.uniformMatrix4fv(u.uVP, false, RND.vp);
   gl.uniform3fv(u.uCam, RND.cam);
   gl.uniform1f(u.uTime, time);
@@ -2918,7 +2992,7 @@ function visibleChunks(viewDist) {
     const dx = wrapD(ch.center[0] - wrapW(cx)), dz = wrapD(ch.center[2] - wrapW(cz));
     const d = Math.hypot(dx, dz);
     if (d > viewDist + half) continue;
-    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2) continue;
+    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2 && !(RND.bend > 0.05 && d > 430)) continue;
     out.push({ ch, off: [cx + dx - ch.center[0], 0, cz + dz - ch.center[2]], d });
   }
   return out;
@@ -2949,7 +3023,8 @@ function renderFrame(time, scene) {
   const u = RND.world.u;
   const vis = visibleChunks(RND.viewDist);
   // abyss
-  gl.uniform1i(u.uTiled, 0); drawMesh(RND.abyss, m4qps(TMPM2, qident(), [RND.cam[0], -320, RND.cam[2]]), 0);
+  setBend(u, 0); gl.uniform1i(u.uTiled, 0); drawMesh(RND.abyss, m4qps(TMPM2, qident(), [RND.cam[0], -320, RND.cam[2]]), 0);
+  setBend(u, 1);
   if (!RND.dbgNoWorld) for (const v of vis) drawMesh(v.ch.mesh, IDENT, 1, v.off);
   // props instanced
   gl.uniform1i(u.uInst, 1); gl.uniform1i(u.uTiled, 1);
@@ -2965,6 +3040,7 @@ function renderFrame(time, scene) {
   }
   gl.uniform1i(u.uInst, 0);
   // sky mobius + plaza monument
+  setBend(u, 0);
   const rot = qaxis(vnorm([0.3, 1, 0.15]), time * 0.02);
   drawMesh(RND.mobiusSky, m4qps(TMPM2, qmul(rot, qaxis([1, 0, 0], 0.35)), [core[0], 900, core[1]]), 0);
   drawMesh(RND.mobiusPlaza, m4qps(TMPM2, qaxis([0, 1, 0], time * 0.15), [core[0], 30 + Math.sin(time * 0.5) * 2, core[1]]), 0);
@@ -2975,6 +3051,7 @@ function renderFrame(time, scene) {
     drawMesh(RND.shards[s.m], m4qps(TMPM2, q, [p[0], s.y + Math.sin(time * 0.2 + s.a) * 10, p[1]], [s.s, s.s, s.s]), 0);
   }
   // scene-specific dynamic objects
+  setBend(u, 1);
   if (scene.drawObjects) scene.drawObjects(time);
   // inverted city in the sky
   if (RND.flipFade < 0.98) {
@@ -2987,7 +3064,7 @@ function renderFrame(time, scene) {
   gl.enable(gl.BLEND); gl.depthMask(false);
   gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4);
   gl.useProgram(RND.dec.p); const du = RND.dec.u;
-  gl.uniformMatrix4fv(du.uVP, false, RND.vp); gl.uniform3fv(du.uCam, RND.cam); gl.uniform1f(du.uFogDen, RND.fogDen);
+  gl.uniformMatrix4fv(du.uVP, false, RND.vp); gl.uniform3fv(du.uCam, RND.cam); setBend(du, 1); gl.uniform1f(du.uFogDen, RND.fogDen);
   const [nSk, nAll] = writeDecals(scene.decals || []);
   gl.bindVertexArray(RND.dVao); gl.bindBuffer(gl.ARRAY_BUFFER, RND.dVb); gl.bufferSubData(gl.ARRAY_BUFFER, 0, RND.dData, 0, nAll * 36);
   gl.uniform3fv(du.uOffset, scene.skidOffset || [0, 0, 0]);
@@ -3003,7 +3080,7 @@ function renderFrame(time, scene) {
   gl.disable(gl.POLYGON_OFFSET_FILL);
   // particles
   gl.useProgram(RND.part.p); const pu = RND.part.u;
-  gl.uniformMatrix4fv(pu.uVP, false, RND.vp); gl.uniform3fv(pu.uCam, RND.cam); gl.uniform3fv(pu.uCR, RND.camR); gl.uniform3fv(pu.uCU, RND.camU);
+  gl.uniformMatrix4fv(pu.uVP, false, RND.vp); gl.uniform3fv(pu.uCam, RND.cam); setBend(pu, 1); gl.uniform3fv(pu.uCR, RND.camR); gl.uniform3fv(pu.uCU, RND.camU);
   gl.bindVertexArray(RND.pVao); gl.bindBuffer(gl.ARRAY_BUFFER, RND.pVb);
   let n = writeParts(false);
   if (n) { gl.bufferSubData(gl.ARRAY_BUFFER, 0, RND.pData, 0, n * 52); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_INT, 0); }
@@ -3823,7 +3900,7 @@ const HUD = {
     const W = innerWidth, H = innerHeight;
     race.ai.forEach((a, i) => {
       const t = $('#tag' + i); if (!t || a.x === undefined) return;
-      const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); const p = [im[0], a.y + 2.4, im[1]];
+      const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); const p = bendPt([im[0], a.y + 2.4, im[1]]);
       const v = RND.vp; const cx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12], cy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13], cw = v[3] * p[0] + v[7] * p[1] + v[11] * p[2] + v[15];
       const d = Math.hypot(im[0] - car.pos[0], im[1] - car.pos[2]);
       if (cw < 1 || d > 180 || a.fallT > 0) { t.style.opacity = 0; return; }
@@ -4124,9 +4201,16 @@ function frame(ts) {
     P.speed = damp(P.speed, 0, 4, dt); P.shard = damp(P.shard, 0, 3, dt); P.kal = damp(P.kal, 0, 3, dt); P.warp = damp(P.warp, 0, 3, dt);
     P.ca = 0.35; P.focus = [0.5, 0.5];
     AUDIO.engine(0.05, false, false, false, 0, st === 'garage'); AUDIO.skid(0);
-    if (st === 'results' || st === 'title') { RND.flipH = damp(RND.flipH, 1500, 0.5, dt); RND.flipFade = damp(RND.flipFade, 0.55, 0.5, dt); }
+    if (st === 'results' || st === 'title') { RND.flipH = damp(RND.flipH, 1500, 0.5, dt); RND.flipFade = damp(RND.flipFade, 0.42, 0.5, dt); }
   }
   P.flash[3] = damp(P.flash[3], 0, 5, dt);
+  { // mirror-dimension curl: slowly rotating, breathing, harder during convergence
+    const conv = st === 'run' && DIRECTOR.conv > 0;
+    RND.bendT = st === 'garage' ? 0.55 : conv ? 1.45 : 1 + clamp((DIRECTOR.level - 1) / 8, 0, 0.25);
+    RND.bend = damp(RND.bend, RND.bendT, 1.2, dt);
+    RND.bendA += dt * (conv ? 0.09 : 0.028);
+    RND.bendR = 285 + Math.sin(GAME.time * 0.11) * 45;
+  }
   gatherLights(RND.cam);
   SCENE.decals = buildCarDecals();
   renderFrame(GAME.time, SCENE);
@@ -4192,7 +4276,7 @@ function runFrame(dt, sdt) {
   // convergence visuals
   const conv = DIRECTOR.conv > 0;
   RND.flipH = damp(RND.flipH, conv ? 620 : 1500, conv ? 0.8 : 0.3, dt);
-  RND.flipFade = damp(RND.flipFade, conv ? 0.28 : 0.55, 0.8, dt);
+  RND.flipFade = damp(RND.flipFade, conv ? 0.2 : 0.42, 0.8, dt);
   P.kal = damp(P.kal, conv ? 0.12 + Math.max(0, Math.sin(GAME.time * 2)) * 0.15 : 0, 2, dt);
   P.shard = damp(P.shard, car.phase > 0 ? 0.4 : 0, 3, dt);
   P.warp = damp(P.warp, conv ? 0.5 : 0, 2, dt);
