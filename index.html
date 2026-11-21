@@ -972,7 +972,7 @@ void main(){
 const COMP_FS = `#version 300 es
 precision highp float; in vec2 vUv;
 uniform sampler2D uT, uB1, uB2;
-uniform float uSpeed, uTime, uShard, uKal, uCA, uGrain, uSat, uVig, uTrans, uWarpWave, uExposure;
+uniform float uSpeed, uTime, uShard, uKal, uCA, uGrain, uSat, uVig, uTrans, uTransA, uWarpWave, uExposure;
 uniform vec4 uFlash; uniform vec2 uRes; uniform vec2 uFocus;
 out vec4 o;
 float h21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
@@ -992,9 +992,8 @@ void main(){
   vec2 pc=(vUv-0.5)*vec2(asp,1.); float pr=length(pc), pa=atan(pc.y,pc.x);
   float te=uTrans*uTrans*(3.-2.*uTrans), pR=mix(0.5*length(vec2(asp,1.))+0.06,0.,te);
   if(uTrans>0.){
-    float fall=1.-smoothstep(0.,max(pR,1e-3),pr);
-    float ang=te*(0.5+3.6*te*fall);
-    vec2 q=(uv-0.5)*vec2(asp,1.)*(1.-0.22*te*(0.4+fall)); float cs=cos(ang), sn=sin(ang);
+    float ang=uTransA; // one clean turn: half while closing, the other half (same direction) while opening
+    vec2 q=(uv-0.5)*vec2(asp,1.)*(1.-0.2*te); float cs=cos(ang), sn=sin(ang);
     q=vec2(q.x*cs-q.y*sn,q.x*sn+q.y*cs); uv=q/vec2(asp,1.)+0.5;
   }
   // fold wave distortion
@@ -3379,7 +3378,7 @@ function renderFrame(time, scene) {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RND.rtB4.t); gl.uniform1i(u.uB2, 2);
     gl.uniform1f(u.uSpeed, P.speed); gl.uniform1f(u.uTime, time); gl.uniform1f(u.uShard, P.shard); gl.uniform1f(u.uKal, P.kal);
     gl.uniform1f(u.uCA, P.ca); gl.uniform1f(u.uGrain, P.grain); gl.uniform1f(u.uSat, P.sat); gl.uniform1f(u.uVig, P.vig);
-    gl.uniform1f(u.uTrans, P.trans); gl.uniform1f(u.uWarpWave, P.warp); gl.uniform1f(u.uExposure, P.exposure);
+    gl.uniform1f(u.uTrans, P.trans); gl.uniform1f(u.uTransA, P.transA || 0); gl.uniform1f(u.uWarpWave, P.warp); gl.uniform1f(u.uExposure, P.exposure);
     gl.uniform4fv(u.uFlash, P.flash); gl.uniform2f(u.uRes, W, H); gl.uniform2fv(u.uFocus, P.focus);
   });
   gl.enable(gl.DEPTH_TEST);
@@ -4243,6 +4242,8 @@ function tickTransition(dt) {
   else if (GAME.transDir === 2) { GAME.transHold -= dt; if (GAME.transHold <= 0) { GAME.transDir = -1; document.body.classList.remove('fold-out'); AUDIO.whoosh(); } }
   else if (GAME.transDir === -1) { GAME.trans = Math.max(0, GAME.trans - dt / 0.95); if (GAME.trans <= 0) GAME.transDir = 0; }
   RND.post.trans = GAME.trans;
+  const e = GAME.trans * GAME.trans * (3 - 2 * GAME.trans);
+  RND.post.transA = GAME.transDir === 1 ? PI * e : GAME.transDir === 2 ? PI : GAME.transDir === -1 ? PI + PI * (1 - e) : 0;
 }
 const UI = {
   garageSpin: 0, sel: 0,
