@@ -227,15 +227,23 @@ body.touch .h-legend{right:auto;left:2vw;top:calc(20vh + 114px);width:120px;font
 @media (max-width:900px){.lg-tab{font-size:10px;line-height:1.5}}
 body.race .h-sub,body.race .h-tl .h-label,body.race .h-score,body.race .h-sub>span:first-child,body.race .h-sub .h-dot:first-of-type,body.race .hull,body.race .h-barrow:nth-child(2),body.race .h-contracts,body.race .h-conv,body.race .h-time{display:none}
 .h-race{position:absolute;inset:0;pointer-events:none}
+.h-race .rp{display:none!important}
+.rpos{position:absolute;left:3vw;top:36vh;display:flex;align-items:flex-end;gap:8px;font-family:var(--fd);transform-origin:left center}
+.rpos b{font:900 150px/0.82 var(--fd);color:#fff;text-shadow:0 0 30px #ff4fd8,0 6px 0 #00000088;-webkit-text-stroke:2px #ffffff22}
+.rpos span{display:flex;flex-direction:column;padding-bottom:6px}.rpos em{font:900 44px/1 var(--fk);font-style:normal}.rpos small{font:800 24px var(--fd);color:#ffffffaa}
+.rpos i{font-style:normal;font:900 46px var(--fd);align-self:flex-start;margin-left:4px}.rpos i.up{color:#4dff9a;text-shadow:0 0 18px #4dff9a}.rpos i.dn{color:#ff4d6d;text-shadow:0 0 18px #ff4d6d}
+.rpos.q1 b{color:#ffe36a;text-shadow:0 0 34px #ffb040,0 6px 0 #00000088}.rpos.q2 b{color:#e6ecff;text-shadow:0 0 30px #9fb4ff,0 6px 0 #00000088}.rpos.q3 b{color:#ffb98a;text-shadow:0 0 30px #ff7a3d,0 6px 0 #00000088}
+.rpos.bump{animation:rposb .5s cubic-bezier(.3,1.6,.5,1)}@keyframes rposb{0%{transform:scale(1.35)}100%{transform:scale(1)}}
+body.touch .rpos{left:auto;right:3vw;top:40vh;transform:scale(.62);transform-origin:right center}
 .h-race .rp{position:absolute;left:3vw;top:3vh;font:900 74px/1 var(--fd);display:flex;align-items:baseline;gap:6px;text-shadow:0 0 24px #ff4fd8}
 .h-race .rp small{font:800 20px var(--fd);color:#ffffffaa}.h-race .rp.p1 b{color:#ffe36a;text-shadow:0 0 30px #ffb040}
-.h-race .rl{position:absolute;left:3vw;top:calc(3vh + 82px);font:800 20px var(--fd);letter-spacing:.08em}
-.h-race .rt{position:absolute;left:3vw;top:calc(3vh + 110px);font:700 22px var(--fh);letter-spacing:.1em}.h-race .rb{position:absolute;left:3vw;top:calc(3vh + 136px);font:600 14px var(--fh);letter-spacing:.2em;color:#ffffff99}
+.h-race .rl{position:absolute;left:3vw;top:3vh;font:800 20px var(--fd);letter-spacing:.08em}
+.h-race .rt{position:absolute;left:3vw;top:calc(3vh + 28px);font:700 22px var(--fh);letter-spacing:.1em}.h-race .rb{position:absolute;left:3vw;top:calc(3vh + 54px);font:600 14px var(--fh);letter-spacing:.2em;color:#ffffff99}
 .rturn{position:absolute;left:50%;top:3vh;transform:translateX(-50%);display:flex;align-items:center;gap:12px;padding:8px 22px;background:#0b0612cc;border:2px solid #7fdcff66;border-radius:40px;font:800 20px var(--fk)}
 .rturn i{font-style:normal;font-size:34px;line-height:1;color:#7fdcff}.rturn.on{border-color:#7fdcff}.rturn.near{background:#05303acc;animation:wb2 .4s infinite alternate}@keyframes wb2{to{box-shadow:0 0 26px #7fdcff}}
 .rbar{position:absolute;left:50%;transform:translateX(-50%);top:calc(3vh + 62px);width:min(460px,50vw);height:6px;background:#ffffff1a;border-radius:3px}
 .rbar-in{position:relative;height:100%}.rbar-in i{position:absolute;top:-4px;width:10px;height:14px;margin-left:-5px;background:#ffb040;border-radius:3px}.rbar-in i.me{background:#fff;box-shadow:0 0 10px #fff;z-index:2;height:18px;top:-6px}
-.h-pops{transition:top .2s}body.race .h-tl{top:calc(3vh + 160px)}body.touch.race .h-tl{top:calc(1vh + 60px);left:20vw}body.race .h-pops{top:38vh}
+.h-pops{transition:top .2s}body.race .h-tl{top:calc(3vh + 80px)}body.touch.race .h-tl{top:calc(1vh + 60px);left:20vw}body.race .h-pops{top:38vh}
 .rwrong{position:absolute;left:50%;top:40vh;transform:translateX(-50%);font:900 44px var(--fk);color:#ff3355;text-shadow:0 0 20px #ff0033;opacity:0;transition:.2s}.rwrong.on{opacity:1;animation:blink .5s infinite}
 .h-tags{position:absolute;inset:0;pointer-events:none}.h-tags .tag{position:absolute;left:0;top:0;padding:2px 9px;background:#140b1ecc;border:1px solid #ffb04088;border-radius:10px;font:700 11px var(--fh);letter-spacing:.1em;white-space:nowrap;opacity:0;transition:opacity .2s}
 body.touch .h-race .rp{transform:scale(.6);transform-origin:top left}body.touch .h-race .rl,body.touch .h-race .rt,body.touch .h-race .rb{display:none}body.touch .rturn{transform:translateX(-50%) scale(.75);transform-origin:top center;top:1vh}body.touch .rbar{top:calc(1vh + 50px)}
@@ -4040,6 +4048,7 @@ const HUD = {
   raceInit(race) {
     let e = $('#hRace'); if (!e) { e = el('div', 'h-race'); e.id = 'hRace'; this.root.appendChild(e); }
     e.innerHTML = `<div class="rp"><b id="rPos">1</b><small id="rPosT">/6</small></div><div class="rl" id="rLap">LAP 1/${race.laps}</div><div class="rt" id="rTime">0:00.0</div><div class="rb" id="rBest">BEST --</div>
+      <div class="rpos" id="rPosBig"><b id="rPosN">6</b><span><em>위</em><small id="rPosOf">/ 6</small></span><i id="rPosD"></i></div>
       <div class="rturn" id="rTurn"><i id="rArrow">↑</i><span id="rTurnT">직진</span></div>
       <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rwrong" id="rWrong">역주행!  ↺  돌아가세요</div>`;
     let tg = $('#hTags'); if (!tg) { tg = el('div', 'h-tags'); tg.id = 'hTags'; this.root.appendChild(tg); }
@@ -4050,6 +4059,9 @@ const HUD = {
     const ord = me === 1 ? 'ST' : me === 2 ? 'ND' : me === 3 ? 'RD' : 'TH';
     $('#rPos').textContent = me; $('#rPosT').textContent = ord + ' / 6';
     $('#rPos').parentElement.className = 'rp p' + me;
+    { const bg = $('#rPosBig'); if (bg) { const n = list.length; $('#rPosN').textContent = me; $('#rPosOf').textContent = '/ ' + n;
+      if (race.lastPos && me !== race.lastPos && race.started) { const up = me < race.lastPos; const d = $('#rPosD'); d.textContent = up ? '▲' : '▼'; d.className = up ? 'up' : 'dn'; bg.classList.remove('bump'); void bg.offsetWidth; bg.classList.add('bump'); clearTimeout(race.posTO); race.posTO = setTimeout(() => { d.textContent = ''; }, 1600); }
+      race.lastPos = me; bg.className = bg.className.replace(/\bq\d\b/g, '').trim() + ' q' + Math.min(me, 4); } }
     $('#rLap').textContent = `LAP ${Math.min(race.lap + 1, race.laps)} / ${race.laps}`;
     $('#rTime').textContent = fmtT(race.t); $('#rBest').textContent = 'BEST ' + (race.best ? fmtT(race.best) : '--');
     const rt = race.rt; const sm = ((race.sLap % rt.L) + rt.L) % rt.L;
@@ -5166,7 +5178,7 @@ const AI_STYLE = [ // skill spread, aggression (blocking / pushing), corner comm
 ];
 const GRID = [[-8, -4.5], [-8, 4.5], [-19, -4.5], [-19, 4.5], [-30, 4.5]]; // player starts at (-30, -4.5)
 function makeRivalsRib(rb, S) {
-  const D = SAVE.settings.diff || 0, base = [0.9, 0.96, 1.01][D];
+  const D = SAVE.settings.diff || 0, base = [0.86, 0.93, 0.99][D];
   return AI_IDS.map((id, i) => {
     const spec = carSpec(id); if (!spec.mesh) prepareCarMesh(spec);
     const st = AI_STYLE[i];
@@ -5187,7 +5199,9 @@ function updateRivalsRib(dt, race, car) {
     // ---- longitudinal: profile speed ahead, personal top speed, boost, slipstream ----
     const vtop = top * a.skill * (a.boosting ? 1.2 : 1);
     const vHere = ribAt(rb, race.vprof, a.s, a), vAhead = ribAt(rb, race.vprof, a.s + Math.max(10, a.v * 0.35), a.h1);
-    let tgt = Math.min(vtop, Math.min(vHere, vAhead) * (sty.ck + a.ckBoost));
+    const DF = SAVE.settings.diff || 0;
+    let tgt = Math.min(vtop, Math.min(vHere, vAhead) * (sty.ck * [0.92, 0.96, 1][DF] + a.ckBoost));
+    if (a.liftT > 0) { a.liftT -= dt; tgt *= 0.8; }
     let draft = false, ahead = null, aheadD = 1e9;
     for (const o of racers) {
       if (o.a === a) continue; const du = o.s - a.s, dx = o.x - a.x;
@@ -5203,15 +5217,27 @@ function updateRivalsRib(dt, race, car) {
     // boost on straights when behind, or just because
     const kAhead = Math.abs(ribAt(rb, rb.KG, a.s + 60, a.h2)) + Math.abs(rb.KG[a.h1.hint] || 0);
     if (a.boosting) { a.boost -= 26 * dt; if (a.boost <= 0 || kAhead > 0.01) a.boosting = false; }
-    else { a.boost = Math.min(100, a.boost + 7 * dt); if (race.started && a.boost > 45 && kAhead < 0.004 && (gap < 0 || Math.random() < 0.004)) a.boosting = true; }
+    else { a.boost = Math.min(100, a.boost + 7 * dt); if (race.started && !(a.spinT > 0) && a.boost > 45 && kAhead < 0.004 && (gap < 0 ? Math.random() < [0.01, 0.03, 0.1][DF] : Math.random() < 0.003)) a.boosting = true; }
     // ---- mistakes: now and then a driver carries too much speed into the next corner ----
-    a.errT -= dt; if (a.errT <= 0) { a.errT = 8 + Math.random() * 14 / Math.max(0.5, a.skill); if (Math.random() < 0.55) a.ckBoost = 0.08 + Math.random() * 0.08; }
-    if (a.ckBoost > 0) a.ckBoost = Math.max(0, a.ckBoost - dt * 0.04);
+    // ---- mistakes: too hot into a corner, lifting off, twitchy hands, the occasional spin ----
+    a.errT -= dt;
+    if (a.errT <= 0 && race.started && !a.done) {
+      a.errT = [5, 8, 12][DF] + Math.random() * [6, 8, 10][DF];
+      const r = Math.random();
+      if (r < 0.4) a.ckBoost = 0.14 + Math.random() * 0.12;
+      else if (r < 0.68) a.liftT = 0.6 + Math.random() * 1.0;
+      else if (r < 0.88) a.wobT = 1.0 + Math.random() * 1.0;
+      else { a.spinT = 1.5; a.spinA = 0; a.spinDir = Math.random() < 0.5 ? 1 : -1; }
+    }
+    if (a.ckBoost > 0) a.ckBoost = Math.max(0, a.ckBoost - dt * 0.05);
+    if (a.spinT > 0) { a.spinT -= dt; a.v = Math.max(10, a.v - 24 * dt); a.spinA += dt * 4.6 * a.spinDir; if (Math.random() < 0.7) { const fr = ribFrame(rb, a.s, { hint: a.hint }); emit(vadd(vmadd(fr.P, fr.S, a.x), vscale(fr.N, 0.5)), vadd(vscale(fr.T, a.v * 0.4), vscale(fr.N, rnd(1, 3))), [0.6, 0.58, 0.62, 0.35], rnd(0.8, 1.4), rnd(0.8, 1.4), { drag: 1.5, grow: 2.5, add: false }); } }
+    else a.spinA = damp(a.spinA || 0, Math.round((a.spinA || 0) / TAU) * TAU, 4, dt);
     // ---- lateral: racing line (outside before, inside at the apex), overtakes, blocking, wander ----
     const k1 = ribAt(rb, rb.KG, a.s + 18, a.h2), k2 = ribAt(rb, rb.KG, a.s + 70, a.h3);
     const m1 = Math.min(1, Math.abs(k1) * 45), m2 = Math.min(1, Math.abs(k2) * 45);
     let xt = Math.sign(k1) * m1 * (lim - 1) + (1 - m1) * (-Math.sign(k2) * m2 * (lim - 2)) + sty.lo * (1 - m1);
     a.wander += dt * 0.3; xt += Math.sin(a.wander * 1.7) * 1.2;
+    if (a.wobT > 0) { a.wobT -= dt; xt += Math.sin(GAME.time * 9 + a.wander) * 3.2; }
     a.passT -= dt;
     if (ahead && a.v > ahead.v - 2 && a.passT <= 0) { a.passX = clamp(ahead.x > 0 ? ahead.x - 5 : ahead.x + 5, -lim, lim); a.passT = 1.6; }
     if (a.passT > 0) xt = a.passX;
@@ -5223,18 +5249,19 @@ function updateRivalsRib(dt, race, car) {
     a.vx += ax * dt; a.x += a.vx * dt;
     if (Math.abs(a.x) > lim) {
       const sg = Math.sign(a.x); a.x = sg * lim; if (a.vx * sg > 0) a.vx = -a.vx * 0.3;
-      a.v *= 1 - 0.6 * dt; a.scrapeT -= dt;
+      a.v *= 1 - 1.3 * dt; a.scrapeT -= dt;
       if (a.scrapeT <= 0) { a.scrapeT = 0.08; const fr = ribFrame(rb, a.s, { hint: a.hint }); emit(vadd(vmadd(fr.P, fr.S, a.x + sg * 1.6), vscale(fr.N, 0.5)), vadd(vscale(fr.T, a.v * 0.6), vscale(fr.N, rnd(1, 4))), [1, 0.75, 0.35], 0.09, 0.35, { g: 20, streak: 0.02 }); }
     }
     a.s += a.v * dt;
     // ---- pose: yaw from lateral motion + a drift angle in hard corners, body roll ----
     const drift = Math.sign(kh) * clamp(Math.abs(kh) * a.v * a.v / 120, 0, 0.42) * sty.dr;
-    a.psi = damp(a.psi, Math.atan2(a.vx, Math.max(a.v, 4)) + drift, 6, dt);
+    a.psi = damp(a.psi, Math.atan2(a.vx, Math.max(a.v, 4)) + drift, 6, dt) ;
+    const psiV = a.psi + (a.spinA || 0);
     a.roll = damp(a.roll, -clamp(ax / 40, -0.08, 0.08), 6, dt);
     const fr = ribFrame(rb, a.s, a);
     const p = vmadd(fr.P, fr.S, a.x);
     a.x3 = p; a.N = fr.N;
-    const f3 = vnorm(vadd(vscale(fr.T, Math.cos(a.psi)), vscale(fr.S, Math.sin(a.psi))));
+    const f3 = vnorm(vadd(vscale(fr.T, Math.cos(psiV)), vscale(fr.S, Math.sin(psiV))));
     a.q = qmul(qfromBasis(vcross(fr.N, f3), fr.N, f3), qaxis([0, 0, 1], a.roll));
     a.spin += a.v / 0.37 * dt;
     if (a.boosting && Math.random() < 0.6) emit(vadd(vmadd(p, f3, -2.4), vscale(fr.N, 0.6)), vadd(vscale(f3, a.v * 0.7), vscale(f3, -12)), [0.35, 0.65, 1], 0.4, 0.15, { drag: 3 });
