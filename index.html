@@ -2510,7 +2510,7 @@ class Car {
       this.bodyPitch = damp(this.bodyPitch, (thr ? -0.015 : 0) + (brk && vf > 2 ? 0.04 : 0) + (boostKey ? -0.03 : 0), 6, dt);
     } else {
       // ===== AIRBORNE =====
-      if (this.grounded) { this.air = 0; this.acc = [0, 0, 0]; this.ang = [0, 0, 0]; if (this.drifting) this.endDrift(ev); ev('takeoff'); }
+      if (this.grounded) { this.air = 0; this.acc = [0, 0, 0]; this.ang = [0, 0, 0]; if (this.drifting) this.endDrift(ev); this.airLock = { f: !!K.pitchF, b: !!K.pitchB }; ev('takeoff'); }
       this.air += dt; this.lastGroundT += dt;
       const glide = (S.glide || spec.glide) && ctl && K.fly;
       const flyMode = S.flight && ctl && K.fly && this.boost > 0.5;
@@ -2534,7 +2534,8 @@ class Car {
         if (glide) { grav = G * 0.3; if (this.vel[1] < -7) this.vel[1] = damp(this.vel[1], -7, 3, dt); }
         // trick rotation control
         const ac = spec.air * S.airCtl;
-        const yIn = ctl ? steerIn : 0, pIn = ctl ? ((K.pitchF ? 1 : 0) - (K.pitchB ? 1 : 0)) : 0, rIn = ctl ? ((K.rollR ? 1 : 0) - (K.rollL ? 1 : 0)) : 0;
+        const al = this.airLock || (this.airLock = { f: false, b: false }); if (!K.pitchF) al.f = false; if (!K.pitchB) al.b = false;
+        const yIn = ctl ? steerIn : 0, pIn = ctl ? ((K.pitchF && !al.f ? 1 : 0) - (K.pitchB && !al.b ? 1 : 0)) : 0, rIn = ctl ? ((K.rollR ? 1 : 0) - (K.rollL ? 1 : 0)) : 0;
         const rate = 7.2 * ac;
         this.ang[0] = damp(this.ang[0], pIn * rate, pIn ? 10 : 5, dt);
         this.ang[1] = damp(this.ang[1], yIn * rate, yIn ? 10 : 5, dt);
@@ -3467,7 +3468,7 @@ function carEvent(type, d) {
       break;
     case 'takeoff': {
       const vy = car.vel[1];
-      if (vy > 11 && R) { GAME.slow = Math.max(GAME.slow, 0.45); GAME.cine = 1.4; AUDIO.whoosh(); }
+      if (vy > 11 && R) AUDIO.whoosh();
       break;
     }
     case 'jump': AUDIO.whoosh(); for (let i = 0; i < 20; i++) emit(car.pos, [rnd(-6, 6), rnd(1, 4), rnd(-6, 6)], [0.6, 0.8, 1], 0.4, 0.5, { drag: 2 }); break;
@@ -3502,6 +3503,7 @@ function onLand(d) {
   if (d.impact > 6) AUDIO.impact(k * 0.6);
   if (!R) return;
   R.stat.air += d.air;
+  if (d.air < 0.35 && d.quality !== 'crash') return; // a hop over a crest or a wall seam: no banners
   if (d.quality === 'crash') { damage(14 + k * 12, 'crash'); R.breakCombo(); HUD.pop('WIPEOUT', '#ff5070', 1.2); GAME.shake = 1; return; }
   const names = [];
   const [p, y, r] = d.turns;
@@ -3509,23 +3511,24 @@ function onLand(d) {
   if (y) names.push(`${y * 360}`);
   if (r) names.push(r > 1 ? `${r}X BARREL ROLL` : 'BARREL ROLL');
   if (p && r) names.splice(0, names.length, `CORKSCREW ${p + r}X`);
-  let pts = 0;
+  let pts = 0; const parts = []; let col = '#7fdcff', big = false;
   if (d.quality === 'rough') { if (names.length) HUD.pop('SLOPPY', '#9aa', 0.8); damage(4, 'rough'); }
   else {
     if (names.length) {
-      const tricks = p + y + r; pts = 250 * tricks * (1 + tricks * 0.3); R.stat.tricks += tricks; SAVE.total.tricks += tricks;
-      AUDIO.chime(Math.min(6, 2 + tricks)); GAME.slow = Math.max(GAME.slow, 0.25);
+      const tricks = p + y + r; pts += 250 * tricks * (1 + tricks * 0.3); R.stat.tricks += tricks; SAVE.total.tricks += tricks;
+      AUDIO.chime(Math.min(6, 2 + tricks));
       car.boost = Math.min(car.S.boostMax, car.boost + 15 * tricks);
-      R.style(pts, names.join(' + '), '#ff5fd2', false, true);
+      parts.push(names.join(' + ')); col = '#ff5fd2'; big = true;
       RND.post.flash = [1, 0.4, 0.9, 0.18];
       ringBurst(car.pos, [1, 0.35, 0.9], 14);
     }
-    if (d.air > 1.1) R.style(Math.floor(d.air * 120), d.air > 2.5 ? 'HUGE AIR' : 'BIG AIR', '#7fdcff');
+    if (d.air > 1.1) { pts += Math.floor(d.air * 120); parts.push(d.air > 2.5 ? 'HUGE AIR' : 'BIG AIR'); }
     if (d.quality === 'perfect' && (d.air > 0.6)) {
       TIPS.flag('land');
       R.stat.perfect++; car.boost = Math.min(car.S.boostMax, car.boost + 20); car.turbo = Math.max(car.turbo, 0.6);
-      R.style(200, 'PERFECT LANDING', '#ffe36a'); AUDIO.turbo(2);
+      pts += 200; parts.push('PERFECT LANDING'); if (!big) col = '#ffe36a'; AUDIO.turbo(2);
     }
+    if (parts.length) R.style(pts, parts.join(' · '), col, false, big); // one banner per landing
   }
 }
 function ringBurst(pos, col, n) { for (let i = 0; i < n * 3; i++) { const a = i / (n * 3) * TAU; emit([pos[0], pos[1] + 0.6, pos[2]], [Math.cos(a) * 22, rnd(-1, 1), Math.sin(a) * 22], col, 0.35, 0.45, { drag: 3, streak: 0.04 }); } }
@@ -3670,7 +3673,7 @@ function updateEchoes(dt) {
 // ---------- camera ----------
 const CAMS = [{ id: 'chase', ko: '추적' }, { id: 'comfort', ko: '편안한 추적' }, { id: 'hood', ko: '보닛' }, { id: 'fp', ko: '1인칭' }];
 const camMode = () => (CAMS[SAVE.settings.cam || 0] || CAMS[0]).id;
-function cycleCam() { SAVE.settings.cam = ((SAVE.settings.cam || 0) + 1) % CAMS.length; saveGame(); if (HUD.pop) HUD.pop(CAMS[SAVE.settings.cam].ko + ' 시점', '#7fdcff', 0.9); AUDIO.ui(1); }
+function cycleCam() { SAVE.settings.cam = ((SAVE.settings.cam || 0) + 1) % CAMS.length; saveGame(); AUDIO.ui(1); }
 function updateCamera(dt, mode) {
   const car = GAME.car;
   if (mode === 'demo') {
@@ -4184,7 +4187,8 @@ const HUD = {
     const ko = KO_POP[text.replace(/^\d+X /, '')] || (text.includes('FLIP') || text.includes('ROLL') || text.includes('CORKSCREW') || /^\d+$/.test(text.split(' + ')[0]) ? '공중 묘기!' : '');
     const p = el('div', 'pop', `<span>${text}</span>${ko ? `<em>${ko}</em>` : ''}`); p.style.setProperty('--c', col); p.style.setProperty('--s', scale);
     p.style.setProperty('--dx', (Math.random() * 60 - 30) + 'px');
-    $('#hPops').appendChild(p); setTimeout(() => p.remove(), 1500);
+    const hp = $('#hPops'); while (hp.children.length >= 2) hp.firstChild.remove();
+    hp.appendChild(p); setTimeout(() => p.remove(), 1500);
   },
   combo(R) {
     if (!R) return; const c = $('#hCombo');
