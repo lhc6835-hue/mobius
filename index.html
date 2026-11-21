@@ -5399,6 +5399,13 @@ function updateRivalsRib(dt, race, car) {
   if (race.countdown <= 0) race.goT = (race.goT || 0) + dt;
   for (const a of race.ai) {
     const sty = a.st;
+    // ---- parked on the grid until the start (and the driver's own reaction time): perfectly still ----
+    if (race.countdown > 0 || (race.goT || 0) < a.react) {
+      a.v = 0; a.vx = 0; a.psi = 0; a.roll = 0; a.wy = 0; a.yawOff = 0; a.spinA = 0; a.x = a.lane; a.boosting = false;
+      const fr = ribFrame(rb, a.s, a), p = vmadd(fr.P, fr.S, a.x);
+      a.x3 = p; a.N = fr.N; a.y = p[1]; a.q = qfromBasis(vcross(fr.N, fr.T), fr.N, fr.T);
+      continue;
+    }
     // ---- longitudinal: profile speed ahead, personal top speed, boost, slipstream ----
     const vtop = top * a.skill * (a.boosting ? 1.2 : 1);
     const vHere = ribAt(rb, race.vprof, a.s, a), vAhead = ribAt(rb, race.vprof, a.s + Math.max(10, a.v * 0.35), a.h1);
@@ -5477,7 +5484,7 @@ function updateRivalsRib(dt, race, car) {
   // ---- contacts: rigid bodies in track space (X = across the deck, Z = along it) ----
   const aiB = a => ({ X: a.x, Z: a.s, h: a.psi + (a.spinA || 0) + (a.yawOff || 0), vX: a.vx, vZ: a.v, w: a.wy || 0, m: carMass(a.spec), L: CAR_L, W: CAR_W });
   const aiW = (a, b) => { a.x = b.X; a.s = b.Z; a.vx = b.vX; a.v = Math.max(0, b.vZ); a.wy = b.w; };
-  for (let i = 0; i < race.ai.length; i++) for (let j = i + 1; j < race.ai.length; j++) {
+  if (race.countdown <= 0) for (let i = 0; i < race.ai.length; i++) for (let j = i + 1; j < race.ai.length; j++) {
     const A0 = race.ai[i], B0 = race.ai[j]; if (Math.abs(B0.s - A0.s) > 6) continue;
     const A = aiB(A0), B = aiB(B0), c = obbContact(A, B); if (!c) continue;
     solveContact(A, B, c); aiW(A0, A); aiW(B0, B);
