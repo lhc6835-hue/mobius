@@ -21,12 +21,12 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 #boot .bmsg{font:600 14px var(--fh);letter-spacing:.2em;color:#b9a9cc}
 @keyframes bootp{50%{opacity:.55;letter-spacing:.36em}}
 /* ---------- generic screens ---------- */
-#ui{position:fixed;inset:0;z-index:10;pointer-events:none}
+#ui{position:fixed;inset:0;z-index:10;pointer-events:none;transition:opacity .55s ease .05s,transform .7s cubic-bezier(.2,.8,.2,1),filter .6s ease}
 #ui.scr>*{pointer-events:auto}
 #ui.scr{animation:scrIn .55s cubic-bezier(.2,.9,.2,1)}
 @keyframes scrIn{from{opacity:0;transform:perspective(900px) rotateX(12deg) translateY(30px)}to{opacity:1;transform:none}}
-body.fold-out #ui{transition:transform .38s cubic-bezier(.7,0,.9,.3),opacity .38s;transform:perspective(900px) rotateX(-70deg) scale(.9);transform-origin:50% 0;opacity:0}
-body.fold-out #hud{opacity:0;transition:opacity .3s}
+body.fold-out #ui{transition:transform .6s cubic-bezier(.5,0,.75,0),opacity .45s ease,filter .5s ease;transform:scale(1.07);filter:blur(8px);opacity:0}
+body.fold-out #hud{opacity:0;transition:opacity .45s}
 .primary,.menu button,.back,.g-act button,.set button{position:relative}
 /* ---------- logo ---------- */
 .logo{position:absolute;left:6vw;top:11vh;pointer-events:none!important}
@@ -959,7 +959,7 @@ vec2 h22(vec2 p){ return vec2(h21(p),h21(p+17.3)); }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
 vec3 samp(vec2 uv){
   vec2 d=uv-uFocus;
-  float ca=uCA*(0.4+length(d)*2.);
+  float ca=(uCA+uTrans*1.6)*(0.4+length(d)*2.);
   vec3 c;
   c.r=texture(uT,uv+d*ca*0.012).r; c.g=texture(uT,uv).g; c.b=texture(uT,uv-d*ca*0.012).b;
   return c;
@@ -967,6 +967,15 @@ vec3 samp(vec2 uv){
 void main(){
   vec2 uv=vUv;
   float asp=uRes.x/uRes.y;
+  // portal transition: inside the closing / opening ring the scene swirls and is drawn toward the centre
+  vec2 pc=(vUv-0.5)*vec2(asp,1.); float pr=length(pc), pa=atan(pc.y,pc.x);
+  float te=uTrans*uTrans*(3.-2.*uTrans), pR=mix(0.5*length(vec2(asp,1.))+0.06,0.,te);
+  if(uTrans>0.){
+    float fall=1.-smoothstep(0.,max(pR,1e-3),pr);
+    float ang=te*(0.5+3.6*te*fall);
+    vec2 q=(uv-0.5)*vec2(asp,1.)*(1.-0.22*te*(0.4+fall)); float cs=cos(ang), sn=sin(ang);
+    q=vec2(q.x*cs-q.y*sn,q.x*sn+q.y*cs); uv=q/vec2(asp,1.)+0.5;
+  }
   // fold wave distortion
   if(uWarpWave>0.){ uv.x+=sin(uv.y*18.+uTime*6.)*0.006*uWarpWave; uv.y+=sin(uv.x*14.-uTime*5.)*0.005*uWarpWave; }
   // kaleidoscope (mirror dimension)
@@ -1011,14 +1020,24 @@ void main(){
   vec2 q=vUv-0.5; float v=1.-dot(q,q)*uVig*1.6; c*=clamp(v,0.,1.);
   c+=(h21(vUv*uRes+fract(uTime)*100.)-0.5)*uGrain;
   c=mix(c,uFlash.rgb,uFlash.a);
-  // transition: fold/shatter to black
+  // transition: a sling-ring portal. Outside it a slowly turning violet mandala, on it a ring of sparks
   if(uTrans>0.){
-    vec2 g=vUv*vec2(asp,1.)*7.; vec2 gi=floor(g);
-    float th=h21(gi)*0.6+ (1.-vUv.y)*0.4;
-    float m=smoothstep(th-0.05,th+0.05,uTrans*1.2-0.1);
-    c=mix(c,vec3(0.02,0.0,0.03),m);
-    float e=smoothstep(0.1,0.,abs(uTrans*1.2-0.1-th))*(1.-step(0.999,uTrans));
-    c+=vec3(1.,.4,.9)*e*0.8;
+    float seg=6.2831853/12., am=abs(mod(pa+uTime*0.18,seg)-seg*0.5); vec2 k=vec2(cos(am),sin(am))*pr;
+    float lines=smoothstep(0.012,0.,abs(fract(k.x*7.-uTime*0.35)-0.5)*0.14)+smoothstep(0.01,0.,abs(fract(k.y*11.+uTime*0.2)-0.5)*0.09)*0.6;
+    float rings=smoothstep(0.02,0.,abs(fract(pr*6.-uTime*0.5)-0.5)*0.16);
+    vec3 back=vec3(0.035,0.006,0.06)+vec3(0.18,0.05,0.28)*exp(-pr*2.2)+vec3(1.,.55,.2)*(lines*0.16+rings*0.1)*(0.6+0.4*sin(uTime*2.+pr*8.));
+    float outside=smoothstep(pR-0.006,pR+0.006,pr);
+    c=mix(c,back,outside);
+    float live=smoothstep(0.,0.05,pR)*(1.-step(0.999,uTrans));
+    float d=abs(pr-pR);
+    float spark=pow(h21(vec2(floor(pa*70.+uTime*30.),floor(uTime*24.))),5.);
+    vec3 rc=mix(vec3(1.,.6,.18),vec3(1.,.32,.85),0.5+0.5*sin(pa*3.+uTime*5.));
+    c+=rc*(exp(-d*160.)*(1.2+2.2*spark)+exp(-d*26.)*0.45)*live;
+    // sparks thrown off the rim
+    float fly=max(0.,pr-pR); float streak=pow(max(0.,sin(pa*46.+uTime*22.-fly*40.)),40.)*exp(-fly*18.)*step(pR,pr);
+    c+=vec3(1.,.7,.3)*streak*1.4*live;
+    // inner rim glow on the scene side
+    c+=rc*exp(-max(0.,pR-pr)*30.)*0.25*live*(1.-outside);
   }
   o=vec4(c,1.);
 }`.replace('TAU_', '6.2831853');
@@ -4197,8 +4216,9 @@ function transition(cb) {
   document.body.classList.add('fold-out');
 }
 function tickTransition(dt) {
-  if (GAME.transDir === 1) { GAME.trans = Math.min(1, GAME.trans + dt * 2.6); if (GAME.trans >= 1) { const cb = GAME.transCb; GAME.transCb = null; GAME.transDir = -1; if (cb) cb(); document.body.classList.remove('fold-out'); } }
-  else if (GAME.transDir === -1) { GAME.trans = Math.max(0, GAME.trans - dt * 2.2); if (GAME.trans <= 0) GAME.transDir = 0; }
+  if (GAME.transDir === 1) { GAME.trans = Math.min(1, GAME.trans + dt / 0.85); if (GAME.trans >= 1) { const cb = GAME.transCb; GAME.transCb = null; GAME.transDir = 2; GAME.transHold = 0.18; if (cb) cb(); } }
+  else if (GAME.transDir === 2) { GAME.transHold -= dt; if (GAME.transHold <= 0) { GAME.transDir = -1; document.body.classList.remove('fold-out'); AUDIO.whoosh(); } }
+  else if (GAME.transDir === -1) { GAME.trans = Math.max(0, GAME.trans - dt / 0.95); if (GAME.trans <= 0) GAME.transDir = 0; }
   RND.post.trans = GAME.trans;
 }
 const UI = {
