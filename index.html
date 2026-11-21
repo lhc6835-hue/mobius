@@ -169,6 +169,7 @@ body.touch .tkeys{display:flex!important}body.touch .keys:not(.tkeys){display:no
 .t-roll{width:52px;height:52px;bottom:190px;opacity:.5}.t-roll b{font-size:20px}.t-q{right:200px}.t-e{right:140px}
 #touch.air .t-roll{opacity:1;border-color:#ff4fd8}
 .t-sk{width:56px;height:56px;bottom:180px}.t-f{right:30px;bottom:220px}.t-x{right:204px;bottom:120px}.t-sk.cd{opacity:.3}
+.t-cam{right:calc(max(14px,env(safe-area-inset-right)) + 54px)!important;font-size:18px}
 .t-pause{position:absolute;right:max(14px,env(safe-area-inset-right));top:max(12px,env(safe-area-inset-top));width:44px;height:44px;border-radius:10px;background:#140b1ecc;border:1px solid #ffffff40;color:#fff;font-size:16px;pointer-events:auto}
 .t-rot{display:none}
 @media (orientation:portrait){#touch.show .t-rot{display:block;position:absolute;left:0;right:0;top:40%;text-align:center;font-size:13px;color:#ffffffaa;animation:blink 1.5s infinite}}
@@ -3667,6 +3668,9 @@ function updateEchoes(dt) {
 }
 
 // ---------- camera ----------
+const CAMS = [{ id: 'chase', ko: '추적' }, { id: 'comfort', ko: '편안한 추적' }, { id: 'hood', ko: '보닛' }, { id: 'fp', ko: '1인칭' }];
+const camMode = () => (CAMS[SAVE.settings.cam || 0] || CAMS[0]).id;
+function cycleCam() { SAVE.settings.cam = ((SAVE.settings.cam || 0) + 1) % CAMS.length; saveGame(); if (HUD.pop) HUD.pop(CAMS[SAVE.settings.cam].ko + ' 시점', '#7fdcff', 0.9); AUDIO.ui(1); }
 function updateCamera(dt, mode) {
   const car = GAME.car;
   if (mode === 'demo') {
@@ -3685,18 +3689,29 @@ function updateCamera(dt, mode) {
     RND.look = vadd(tgt, vscale(side, 2.6)); RND.fov = 40; RND.upv = [0, 1, 0];
     return;
   }
+  const cm = camMode(), comfort = cm === 'comfort';
+  if (cm === 'fp' || cm === 'hood') { // eyes in the cockpit / on the bonnet, rolling with the car
+    const up = car.rib ? car.surfN : car.up(), f = car.fwd(), sp = clamp(car.speed / car.S.top, 0, 1.4);
+    const eye = vadd(vadd(car.pos, vscale(up, cm === 'fp' ? 1.05 : 1.32)), vscale(f, cm === 'fp' ? -0.15 : 0.85));
+    const vd = vlen(car.vel) > 4 ? vnorm(car.vel) : f, ld = vnorm(vadd(vscale(f, 0.8), vscale(vd, 0.2)));
+    GAME.camPos = eye; GAME.camUp = vnorm(vlerp(GAME.camUp || up, up, 1 - Math.exp(-dt * 12)));
+    const s = GAME.shake * 0.4 + sp * sp * 0.01, t = GAME.time, sh = [Math.sin(t * 47) * s * 0.12, Math.sin(t * 53 + 1) * s * 0.1, Math.sin(t * 41 + 2) * s * 0.12];
+    RND.cam = vadd(eye, sh); RND.look = vadd(eye, vscale(ld, 30)); RND.upv = GAME.camUp;
+    GAME.fovV = damp(GAME.fovV, (cm === 'fp' ? 74 : 70) + sp * 10 + (car.boosting ? 5 : 0), 4, dt); RND.fov = GAME.fovV; GAME.shake = damp(GAME.shake, 0, 6, dt);
+    return;
+  }
   if (car.rib && car.rib.fr) { // chase cam that rolls with the ribbon
     const fr = car.rib.fr, Nn = car.surfN, sp = clamp(car.speed / car.S.top, 0, 1.4);
-    const dir = vnorm(vadd(vscale(fr.T, 0.55), vscale(car.fwd(), 0.45)));
-    const want = vadd(vmadd(car.pos, dir, -(9 + sp * 2.4)), vscale(Nn, 3.3 + sp * 0.5));
-    GAME.camPos = vlerp(GAME.camPos, want, 1 - Math.exp(-dt * 9)); if (vlen(vsub(GAME.camPos, car.pos)) > 60) GAME.camPos = want;
-    GAME.camUp = vnorm(vlerp(GAME.camUp || Nn, Nn, 1 - Math.exp(-dt * 6)));
-    const look = vadd(vmadd(car.pos, dir, 4 + sp * 5), vscale(Nn, 1.2));
-    const s = GAME.shake + sp * sp * 0.03 + (car.boosting ? 0.03 : 0), t = GAME.time;
+    const dir = vnorm(vadd(vscale(fr.T, comfort ? 0.8 : 0.55), vscale(car.fwd(), comfort ? 0.2 : 0.45)));
+    const want = vadd(vmadd(car.pos, dir, -(comfort ? 13 + sp * 1.5 : 9 + sp * 2.4)), vscale(Nn, comfort ? 5.2 : 3.3 + sp * 0.5));
+    GAME.camPos = vlerp(GAME.camPos, want, 1 - Math.exp(-dt * (comfort ? 3.5 : 9))); if (vlen(vsub(GAME.camPos, car.pos)) > 60) GAME.camPos = want;
+    GAME.camUp = vnorm(vlerp(GAME.camUp || Nn, Nn, 1 - Math.exp(-dt * (comfort ? 2.5 : 6))));
+    const look = vadd(vmadd(car.pos, dir, comfort ? 9 : 4 + sp * 5), vscale(Nn, 1.2));
+    const s = comfort ? 0 : GAME.shake + sp * sp * 0.03 + (car.boosting ? 0.03 : 0), t = GAME.time;
     const sh = [Math.sin(t * 47) * s * 0.35, Math.sin(t * 53 + 1) * s * 0.28, Math.sin(t * 41 + 2) * s * 0.35];
     RND.cam = vadd(GAME.camPos, sh); RND.look = vadd(look, vscale(sh, 0.5)); GAME.shake = damp(GAME.shake, 0, 6, dt);
-    const fovT = 66 + sp * 14 + (car.boosting ? 7 : 0) + (car.turbo > 0 ? 5 : 0) + (car.overdrive > 0 ? 6 : 0);
-    GAME.fovV = damp(GAME.fovV, fovT, car.boosting || car.turbo > 0 ? 7 : 3, dt); RND.fov = GAME.fovV; RND.upv = GAME.camUp;
+    const fovT = comfort ? 64 + sp * 5 : 66 + sp * 14 + (car.boosting ? 7 : 0) + (car.turbo > 0 ? 5 : 0) + (car.overdrive > 0 ? 6 : 0);
+    GAME.fovV = damp(GAME.fovV, fovT, comfort ? 1.5 : car.boosting || car.turbo > 0 ? 7 : 3, dt); RND.fov = GAME.fovV; RND.upv = GAME.camUp;
     return;
   }
   const sp01 = clamp(car.speed / car.S.top, 0, 1.4);
@@ -3705,12 +3720,12 @@ function updateCamera(dt, mode) {
   let dir = vh > 4 ? vnorm(vlerp(hf, [car.vel[0] / vh, 0, car.vel[2] / vh], car.grounded ? 0.55 : 0.85)) : hf;
   if (car.flying) dir = hf;
   const rc = GAME.race ? 1 : 0;
-  const dist = 7.2 + rc * 1.6 + sp01 * 2.2 + (car.grounded ? 0 : 1.5);
-  const hgt = 2.9 + rc * 1.6 + sp01 * 0.4 + (car.grounded ? 0 : 1.2);
+  const dist = comfort ? 12 + sp01 * 1.5 : 7.2 + rc * 1.6 + sp01 * 2.2 + (car.grounded ? 0 : 1.5);
+  const hgt = comfort ? 5 : 2.9 + rc * 1.6 + sp01 * 0.4 + (car.grounded ? 0 : 1.2);
   let want = vadd(car.pos, [-dir[0] * dist, hgt, -dir[2] * dist]);
   // cinematic side cam on big jumps
-  if (GAME.cine > 0) { GAME.cine -= dt; const side = [dir[2], 0, -dir[0]]; const k = Math.sin(clamp(GAME.cine / 1.4, 0, 1) * PI); want = vadd(want, vadd(vscale(side, 7 * k), [0, 2 * k, 0])); }
-  const kH = 1 - Math.exp(-dt * (car.grounded ? 9 : 5)), kV = 1 - Math.exp(-dt * 5);
+  if (GAME.cine > 0 && !comfort) { GAME.cine -= dt; const side = [dir[2], 0, -dir[0]]; const k = Math.sin(clamp(GAME.cine / 1.4, 0, 1) * PI); want = vadd(want, vadd(vscale(side, 7 * k), [0, 2 * k, 0])); }
+  const kH = 1 - Math.exp(-dt * (comfort ? 3 : car.grounded ? 9 : 5)), kV = 1 - Math.exp(-dt * (comfort ? 2.5 : 5));
   const cp = GAME.camPos;
   // keep camera continuous across wrap (car pos is unbounded so fine)
   GAME.camPos = [lerp(cp[0], want[0], kH), lerp(cp[1], want[1], kV), lerp(cp[2], want[2], kH)];
@@ -3719,16 +3734,16 @@ function updateCamera(dt, mode) {
   // ground clearance
   const g = groundAt(GAME.camPos[0], GAME.camPos[1] + 2, GAME.camPos[2], dt);
   if (g && GAME.camPos[1] < g.h + 1) GAME.camPos[1] = g.h + 1;
-  const look = vadd(car.pos, vadd([0, 1.1, 0], vscale(dir, 3 + sp01 * 4)));
+  const look = vadd(car.pos, vadd([0, 1.1, 0], vscale(dir, comfort ? 8 : 3 + sp01 * 4)));
   // shake
-  const s = GAME.shake + (car.grounded ? sp01 * sp01 * 0.03 : 0) + (car.boosting ? 0.03 : 0);
+  const s = comfort ? GAME.shake * 0.15 : GAME.shake + (car.grounded ? sp01 * sp01 * 0.03 : 0) + (car.boosting ? 0.03 : 0);
   const t = GAME.time;
   const sh = [Math.sin(t * 47) * s * 0.35, Math.sin(t * 53 + 1) * s * 0.28, Math.sin(t * 41 + 2) * s * 0.35];
   RND.cam = vadd(GAME.camPos, sh); RND.look = vadd(look, vscale(sh, 0.5));
   GAME.shake = damp(GAME.shake, 0, 6, dt);
-  const fovT = 64 + sp01 * 14 + (car.boosting ? 7 : 0) + (car.turbo > 0 ? 5 : 0) + (car.overdrive > 0 ? 6 : 0);
-  GAME.fovV = damp(GAME.fovV, fovT, car.boosting || car.turbo > 0 ? 7 : 3, dt); RND.fov = GAME.fovV;
-  const roll = car.drifting ? -car.driftDir * 0.035 : -car.steer * sp01 * 0.012;
+  const fovT = comfort ? 62 + sp01 * 5 : 64 + sp01 * 14 + (car.boosting ? 7 : 0) + (car.turbo > 0 ? 5 : 0) + (car.overdrive > 0 ? 6 : 0);
+  GAME.fovV = damp(GAME.fovV, fovT, comfort ? 1.5 : car.boosting || car.turbo > 0 ? 7 : 3, dt); RND.fov = GAME.fovV;
+  const roll = comfort ? 0 : car.drifting ? -car.driftDir * 0.035 : -car.steer * sp01 * 0.012;
   RND.upv = vnorm([Math.sin(roll) * dir[2], 1, -Math.sin(roll) * dir[0]]);
 }
 
@@ -3813,7 +3828,7 @@ const SCENE = {
   decals: [], skidOffset: [0, 0, 0],
   drawObjects(time) {
     const car = GAME.car;
-    if (car.spec && car.spec.mesh) drawCar(car.spec, carMatrix(car), car.wheelSpin, car.steer, car.phase > 0 ? [0.4, 1.6, 1.5] : (car.invuln > 0 && Math.sin(time * 30) > 0 ? [1.6, 1.6, 1.6] : null));
+    if (car.spec && car.spec.mesh && !(GAME.state === 'run' && camMode() === 'fp')) drawCar(car.spec, carMatrix(car), car.wheelSpin, car.steer, car.phase > 0 ? [0.4, 1.6, 1.5] : (car.invuln > 0 && Math.sin(time * 30) > 0 ? [1.6, 1.6, 1.6] : null));
     // echoes
     for (const e of GAME.echoes) if (e.pos) drawCar(car.spec, m4qps(m4(), e.q, e.pos), time * 20, 0, [1.8, 0.35, 1.7]);
     // traffic
@@ -4340,7 +4355,7 @@ const UI = {
       </aside>
       <div class="car-tag"><small>${spec.tag}</small><b>${spec.name}</b></div>
       <div class="keys tkeys"><span>왼쪽 화면을 끌어 조향 · 오른쪽 버튼으로 가속, 드리프트, 부스트 · 공중에서 스틱으로 트릭</span></div>
-      <div class="keys"><span><b>W A S D</b>주행</span><span><b>SHIFT</b>드리프트</span><span><b>SPACE</b>부스트</span><span><b>공중 W A S D Q E</b>트릭</span><span><b>R</b>복귀</span><span><b>ESC</b>일시정지</span><span><b>ENTER</b>바로 출격</span></div>`);
+      <div class="keys"><span><b>W A S D</b>주행</span><span><b>SHIFT</b>드리프트</span><span><b>SPACE</b>부스트</span><span><b>공중 W A S D Q E</b>트릭</span><span><b>R</b>복귀</span><span><b>C</b>시점</span><span><b>ESC</b>일시정지</span><span><b>ENTER</b>바로 출격</span></div>`);
     this.root.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { AUDIO.ui(1); SAVE.settings.diff = +b.dataset.d; saveGame(); this.title(); });
   },
   tracks() {
@@ -4378,7 +4393,7 @@ const UI = {
         <div class="card"><div class="ci" style="color:#33ff8c">▲</div><h4>초록 화살표는 점프대</h4><p>도로에 <b style="color:#33ff8c">초록 화살표</b>가 흐르면 그 방향으로 도로가 들려요. 피하지 말고 <b>화살표 방향 그대로</b> 달리면 날아올라요. 공중에서 방향을 누르면 회전 묘기, 손을 떼면 알아서 균형을 잡아요.</p></div>
         <div class="card"><div class="ci cy">✦</div><h4>샤드로 강해지기</h4><p>길 위의 <b class="cy">하늘색 결정</b>이 샤드예요. 모은 샤드로 스킬 트리에서 차를 강화하고 새 차를 열어요. 매판 조금씩 강해지니 처음엔 짧게 끝나도 괜찮아요.</p></div>
       </div>
-      <div class="ctrl">${tc ? '<span><b>왼쪽 화면 끌기</b>방향</span><span><b>GAS</b>가속</span><span><b>BRAKE</b>감속·후진</span><span><b>DRIFT</b>꺾으면서 누르기</span><span><b>BOOST</b>순간 가속</span>' : '<span><b>W / ↑</b>가속</span><span><b>A D / ← →</b>방향</span><span><b>S / ↓</b>감속·후진</span><span><b>SHIFT</b>꺾으면서 누르면 드리프트</span><span><b>SPACE</b>부스트</span><span><b>R</b>막혔을 때 도로로 복귀</span>'}</div>
+      <div class="ctrl">${tc ? '<span><b>왼쪽 화면 끌기</b>방향</span><span><b>GAS</b>가속</span><span><b>BRAKE</b>감속·후진</span><span><b>DRIFT</b>꺾으면서 누르기</span><span><b>BOOST</b>순간 가속</span>' : '<span><b>W / ↑</b>가속</span><span><b>A D / ← →</b>방향</span><span><b>S / ↓</b>감속·후진</span><span><b>SHIFT</b>꺾으면서 누르면 드리프트</span><span><b>SPACE</b>부스트</span><span><b>R</b>막혔을 때 도로로 복귀</span><span><b>C</b>카메라 시점 바꾸기</span>'}</div>
       <nav class="menu row"><button class="primary" data-go="${first ? 'go' : 'title'}"><span>${first ? "LET'S GO" : 'OK'}</span><small>${first ? '출발' : '알겠어요'}</small></button></nav>`);
   },
   garage() {
@@ -4450,11 +4465,13 @@ const UI = {
         <label>음악 <input type="range" id="sM" min="0" max="1" step="0.05" value="${S.music}"></label>
         <label>초보 도움말 <input type="checkbox" id="sT" ${S.tips ? 'checked' : ''}></label>
         <label>효과음 <input type="range" id="sS" min="0" max="1" step="0.05" value="${S.sfx}"></label>
+        <label>카메라 시점 <select id="sC">${CAMS.map((c, i) => `<option value="${i}">${c.ko}</option>`).join('')}</select></label>
         <button id="sReset" class="danger"><span>RESET SAVE</span><small>진행 상황 전부 삭제</small></button>
         <p class="credits">음악·효과음: OpenGameArt.org — MintoDog, domasx2, qubodup, rubberduck, Kenney, cinameng, mieki256, NenadSimic, artisticdude, Spring Spring, Bobjt, SketchMan3 (CC0) · 타이어 스키드 "Car Tire Squeal Skid Loop" by audible-edge (Tom Haigh), CC-BY 3.0</p>
       </div><button class="back" data-go="title">◂ BACK</button>`);
     $('#sQ').value = String(S.gfx); $('#sT').onchange = e => { S.tips = e.target.checked; saveGame(); };
     $('#sQ').onchange = e => { S.gfx = +e.target.value; applyQuality(); saveGame(); };
+    $('#sC').value = String(S.cam || 0); $('#sC').onchange = e => { S.cam = +e.target.value; saveGame(); };
     $('#sM').oninput = e => { S.music = +e.target.value; if (AUDIO.mus) AUDIO.mus.gain.value = S.music * 0.55; saveGame(); };
     $('#sS').oninput = e => { S.sfx = +e.target.value; if (AUDIO.sfx) AUDIO.sfx.gain.value = S.sfx; saveGame(); };
     let armed = false; $('#sReset').onclick = () => { if (!armed) { armed = true; $('#sReset span').textContent = 'CONFIRM?'; return; } localStorage.removeItem(SAVE_KEY); SAVE = DEFAULT_SAVE(); refillContracts(); saveGame(); this.go('title'); };
@@ -4609,6 +4626,7 @@ function runFrame(dt, sdt) {
   DIRECTOR.tick(sdt);
   // skills
   if (ctl && S.phase && pressed('KeyX') && car.phaseCd <= 0) { car.phase = 0.7; car.phaseCd = 8; AUDIO.whoosh(); RND.post.flash = [0.3, 1, 0.9, 0.25]; }
+  if (pressed('KeyC')) cycleCam();
   if (car.rib) { if (ctl && pressed('KeyR') && (car.rCd || 0) <= 0) { car.rCd = 3; respawnRace('리셋'); } }
   else if (ctl && pressed('KeyR') && (car.rCd || 0) <= 0) { car.rCd = 3; const sp = findRoadSpawn(car.lastGroundPos[0], car.lastGroundPos[2]); car.pos = [car.lastGroundPos[0] + wrapD(sp.pos[0] - wrapW(car.lastGroundPos[0])), sp.pos[1] + 2, car.lastGroundPos[2] + wrapD(sp.pos[2] - wrapW(car.lastGroundPos[2]))]; car.vel = [0, 0, 0]; car.heading = sp.heading; car.q = qaxis([0, 1, 0], sp.heading); damage(5, 'reset'); R.breakCombo(); }
   car.rCd = (car.rCd || 0) - dt;
@@ -4660,8 +4678,9 @@ function runFrame(dt, sdt) {
   AUDIO.setHot(conv || !!(race && race.started && race.lap >= race.laps - 1));
   // speed fx
   const sp01 = clamp(car.speed / S.top, 0, 1.4);
-  P.speed = damp(P.speed, sp01 * 0.3 + (car.boosting ? 0.3 : 0) + (car.turbo > 0 ? 0.25 : 0) + (car.overdrive > 0 ? 0.4 : 0), 6, dt);
-  P.ca = 0.25 + P.speed * 0.5 + (conv ? 0.4 : 0);
+  const calm = camMode() === 'comfort' ? 0.35 : 1;
+  P.speed = damp(P.speed, (sp01 * 0.3 + (car.boosting ? 0.3 : 0) + (car.turbo > 0 ? 0.25 : 0) + (car.overdrive > 0 ? 0.4 : 0)) * calm, 6, dt);
+  P.ca = (0.25 + P.speed * 0.5 + (conv ? 0.4 : 0)) * (calm < 1 ? 0.5 : 1);
   P.focus = [0.5, 0.56];
   carFX(sdt);
   updateCamera(dt, 'run');
@@ -4711,7 +4730,7 @@ const TOUCHUI = {
         <button class="tb t-sk t-f" data-k="KeyF" data-p="1"><b>F</b></button>
         <button class="tb t-sk t-x" data-k="KeyX" data-p="1"><b>X</b></button>
       </div>
-      <button class="t-pause" id="tPause">Ⅱ</button>
+      <button class="t-pause" id="tPause">Ⅱ</button><button class="t-pause t-cam" id="tCam">◉</button>
       <div class="t-rot">가로 화면으로 돌리면 더 넓게 보여요</div>`);
     root.id = 'touch'; document.body.appendChild(root);
     // buttons (multi-touch safe)
@@ -4741,6 +4760,7 @@ const TOUCHUI = {
     });
     const end = e => { if (e.pointerId !== pid) return; pid = null; TOUCH.sx = TOUCH.sy = 0; knob.style.transform = ''; stick.classList.remove('on'); };
     zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+    $('#tCam').addEventListener('pointerdown', e => { e.preventDefault(); if (GAME.state === 'run') cycleCam(); });
     $('#tPause').addEventListener('pointerdown', e => { e.preventDefault(); if (GAME.state === 'run' && !GAME.run.over) UI.pause(); else if (GAME.state === 'pause') UI.go('resume'); });
     // stop page scrolling / zoom gestures
     document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
