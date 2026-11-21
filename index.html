@@ -644,6 +644,7 @@ void main(){
       float la=h2*6.283+sin(uTime*0.05+h*4.)*0.6; vec2 ld=vec2(cos(la),sin(la));
       float lk=(h2>0.5?1.:0.3)*(0.0015+0.0007*sin(uTime*0.17+h*9.))*uBend;
       p.xz+=ld*hy*hy*lk*f;
+      p.xz=clamp(p.xz,lc-vec2(47.),lc+vec2(47.));
     }
     if(a.z!=0.){
       float ang=a.z*p.y*0.012; vec2 c=ext.zw; vec2 d=p.xz-c; float cs=cos(ang),sn=sin(ang);
@@ -653,6 +654,7 @@ void main(){
     int r=int(a.x+0.5);
     if(r>0){ mat4 R=uReg[r-1]; p=(R*vec4(p,1)).xyz; n=mat3(R)*n; }
     if(b.x>0.5) p=vec3(0.,-1e5,0.);
+    if(b.w>0.5){ int mt=int(aCol.a*255.+.5); if(uInst==1 || (mt!=1 && mt!=6 && mt!=7 && !(mt==9 && aPos.y<0.2))) p=vec3(0.,-1e5,0.); }
   }
   p+=uOffset;
   vFlat=uBend>0.?length(p.xz-uCam.xz)*0.85:0.;
@@ -771,6 +773,15 @@ void main(){
     alb*=0.6+0.7*d.r; rough=0.9;
   } else if(mat==10){ // metal
     rough=0.35; refl=0.45; spec=0.9;
+  } else if(mat==12){ // skyway deck
+    float lx=vUv.x, s=vUv.y;
+    vec2 g=vec2(lx*3.75, s/4.); vec2 gf=abs(fract(g)-0.5); float gl=smoothstep(0.44,0.5,max(gf.x,gf.y));
+    float edge=smoothstep(0.84,0.9,abs(lx));
+    float lane=(1.-smoothstep(0.012,0.03,abs(abs(lx)-0.36)))*step(0.45,fract(s/9.));
+    float cv=fract((s-abs(lx)*7.)/36.); float chev=smoothstep(0.,0.015,cv)*(1.-smoothstep(0.05,0.07,cv))*step(abs(lx),0.7);
+    float pulse=0.55+0.45*sin(uTime*5.-s*0.15);
+    alb=vec3(0.03,0.026,0.045)*(1.+gl*0.8); rough=0.22; refl=0.7; spec=1.4;
+    emi=vec3(1.,.3,.85)*edge*1.4+vec3(.35,.85,1.)*(lane*0.7+chev*1.3*pulse)+vec3(0.5,0.2,0.9)*gl*0.06;
   }
   vec3 L=uSunDir;
   float ndl=max(dot(N,L),0.);
@@ -794,7 +805,7 @@ void main(){
     float a=max(0.,1.-dl/pl.w); a*=a;
     if(a<=0.) continue;
     vec3 ld=d/dl; vec3 Hp=normalize(ld+V);
-    col+=(alb*max(dot(N,ld),0.)+pow(max(dot(N,Hp),0.),sh)*spec*(sh*0.02)*1.5)*uPLc[i].rgb*uPLc[i].a*a;
+    col+=(alb*max(dot(N,ld),0.)+pow(max(dot(N,Hp),0.),sh)*spec*(sh*0.02)*1.5)*uPLc[i].rgb*uPLc[i].a*a*(mat==12?0.12:1.);
   }
   float fr=pow(1.-max(dot(N,V),0.),5.);
   vec3 R=reflect(-V,N);
@@ -2259,7 +2270,7 @@ class Car {
     this.turbo = 0; this.wheelSpin = 0; this.bodyPitch = 0; this.bodyRoll = 0; this.lastVf = 0; this.noAirInput = 0;
     this.speed = 0; this.surfN = [0, 1, 0]; this.jumpCd = 0; this.invuln = 0; this.flying = false; this.boosting = false;
     this.susp = 0; this.suspV = 0; this.prevGround = true; this.slip = 0; this.phase = 0; this.phaseCd = 0; this.overdrive = 0;
-    this.groundReg = 0; this.lastGroundPos = pos.slice(); this.lastGroundT = 0;
+    this.groundReg = 0; this.lastGroundPos = pos.slice(); this.lastGroundT = 0; this.rib = null;
   }
   fwd() { return qrot(this.q, [0, 0, 1]); }
   up() { return qrot(this.q, [0, 1, 0]); }
@@ -2277,6 +2288,7 @@ class Car {
     if (boostKey) { this.boost -= 26 * dt; this.boosting = true; if (S.overdrive && this.boost < 1) { } }
     else this.boost = Math.min(S.boostMax, this.boost + S.boostRegen * 2.2 * dt);
     this.turbo -= dt; this.overdrive -= dt;
+    if (this.rib) { this.ribStep(dt, ev, ctl, steerIn, thr, brk, boostKey, topEff); return; }
     // ground probe
     const g = groundAt(this.pos[0], this.pos[1], this.pos[2], dt);
     let grounded = false;
@@ -2439,6 +2451,62 @@ class Car {
       const m = p.mass; this.vel = vscale(this.vel, 1 - Math.min(0.3, m * 0.035));
     });
     if (this.pos[1] < -70) ev('void');
+    if (this.hp < S.hpMax && S.repair > 0) this.hp = Math.min(S.hpMax, this.hp + S.repair * dt);
+  }
+  // driving glued to the SKYWAY ribbon: physics in track space (u along, x across, psi = heading vs tangent)
+  ribStep(dt, ev, ctl, steerIn, thr, brk, boostKey, topEff) {
+    const S = this.S, spec = this.spec.stats, st = this.rib, top = S.top;
+    const fr0 = st.fr || ribFrame(st.rb, st.u, st);
+    { const dth = fr0.kg * st.vT * dt, c = Math.cos(dth), s = Math.sin(dth); const vT = st.vT * c + st.vS * s, vS = -st.vT * s + st.vS * c; st.vT = vT; st.vS = vS; st.psi -= dth; }
+    let vf = Math.cos(st.psi) * st.vT + Math.sin(st.psi) * st.vS, vs = -Math.sin(st.psi) * st.vT + Math.cos(st.psi) * st.vS;
+    const speed = Math.abs(vf), sp01 = clamp(speed / top, 0, 1);
+    this.steer = damp(this.steer, steerIn, 9, dt);
+    const turn = lerp(2.3, 1.35, sp01) * Math.min(1, speed / 6) * (vf < -0.5 ? -1 : 1) * (spec.grip > 1 ? 1.06 : 1);
+    const wantDrift = ctl && K.drift && speed > 9 && (Math.abs(this.steer) > 0.12 || Math.abs(steerIn) > 0.5);
+    if (wantDrift && !this.drifting) { this.drifting = true; this.driftDir = Math.sign(Math.abs(steerIn) > 0.1 ? steerIn : this.steer); this.driftT = 0; this.driftLvl = 0; ev('driftStart'); }
+    let dpsi = 0;
+    if (this.drifting) {
+      if (!(ctl && K.drift && speed > 6)) this.endDrift(ev);
+      else {
+        this.driftT += dt * (0.6 + Math.abs(this.steer) * 0.7) * S.driftMul;
+        const lvl = this.driftT > 2.0 ? 3 : this.driftT > 1.1 ? 2 : this.driftT > 0.45 ? 1 : 0;
+        if (lvl > this.driftLvl) { this.driftLvl = lvl; ev('driftLvl', lvl); }
+        dpsi = (this.driftDir * 1.0 + this.steer * 0.85) * lerp(2.3, 1.95, sp01) * dt;
+      }
+    }
+    if (!this.drifting) dpsi = this.steer * turn * dt;
+    st.psi += dpsi;
+    { const c = Math.cos(dpsi), s = Math.sin(dpsi); const nf = vf * c + vs * s, ns = -vf * s + vs * c; vf = nf; vs = ns; }
+    const gripK = this.drifting ? 3.4 : 13 * spec.grip; const before = vs;
+    vs *= Math.exp(-gripK * dt); this.slip = Math.abs(before);
+    const accBase = S.acc * (1 - Math.pow(clamp(vf / topEff, 0, 1), 2.2));
+    if (thr) vf += accBase * dt * (this.drifting ? 0.95 : 1);
+    if (this.drifting) vf += Math.abs(before) * (1 - Math.exp(-gripK * dt)) * 0.55;
+    if (boostKey) vf += 18 * dt; if (this.turbo > 0) vf += 22 * dt; if (this.overdrive > 0) vf += 14 * dt;
+    if (brk) { if (vf > 1) vf -= 48 * dt; else vf = Math.max(-20, vf - 16 * dt); }
+    if (!thr && !brk) vf -= Math.sign(vf) * Math.min(Math.abs(vf), (2.5 + Math.abs(vf) * 0.05) * dt);
+    if (vf > topEff) vf = damp(vf, topEff, 1.2, dt);
+    st.vT = Math.cos(st.psi) * vf - Math.sin(st.psi) * vs; st.vS = Math.sin(st.psi) * vf + Math.cos(st.psi) * vs;
+    // magnetic deck: only part of gravity pulls along / across it
+    st.vT -= G * fr0.T[1] * 0.5 * dt; st.vS -= G * fr0.S[1] * 0.3 * dt;
+    st.u += st.vT * dt; st.x += st.vS * dt;
+    const lim = RW - 1.3;
+    if (Math.abs(st.x) > lim) {
+      const sg = Math.sign(st.x); st.x = sg * lim; const vo = st.vS * sg;
+      if (vo > 0) {
+        st.vS = -sg * vo * 0.25; const n3 = vscale(fr0.S, -sg);
+        if (!this.drifting && Math.hypot(st.vT, st.vS) > 5) st.psi = lerpAngle(st.psi, Math.atan2(st.vS, st.vT), 0.3);
+        if (Math.random() < 0.5) ev('scrape', n3);
+        if (vo > 8) ev('wall', { impact: vo, n: n3 });
+      }
+    }
+    ribPose(this, dt);
+    vf = Math.cos(st.psi) * st.vT + Math.sin(st.psi) * st.vS;
+    this.grounded = true; this.air = 0; this.acc = [0, 0, 0]; this.flying = false; this.boosting = !!boostKey;
+    this.lastVf = vf; this.speed = Math.hypot(st.vT, st.vS); this.wheelSpin += vf / this.spec.wheelR * dt;
+    this.groundReg = 0; this.lastGroundPos = this.pos.slice(); this.lastGroundT = 0;
+    this.bodyRoll = damp(this.bodyRoll, -this.steer * sp01 * 0.06 + (this.drifting ? -this.driftDir * 0.03 : 0), 6, dt);
+    this.bodyPitch = damp(this.bodyPitch, (thr ? -0.015 : 0) + (brk && vf > 2 ? 0.04 : 0) + (boostKey ? -0.03 : 0), 6, dt);
     if (this.hp < S.hpMax && S.repair > 0) this.hp = Math.min(S.hpMax, this.hp + S.repair * dt);
   }
   endDrift(ev) {
@@ -2617,7 +2685,7 @@ class Fold {
     else if (edge === 'S') { this.pivot = [0, y, (iz1 + 1) * T]; this.axis = [1, 0, 0]; this.sgn = 1; }
     else if (edge === 'MX') { this.pivot = [((ix0 + ix1 + 1) / 2) * T, y, 0]; this.axis = [0, 0, 1]; this.sgn = 1; }
     else if (edge === 'MZ') { this.pivot = [0, y, ((iz0 + iz1 + 1) / 2) * T]; this.axis = [1, 0, 0]; this.sgn = 1; }
-    this.lift = opts.lift || 0;
+    this.lift = opts.lift || 0; this.amb = !!opts.amb;
     this.wt = this.kind === 'ramp' && edge[0] !== 'M' ? ({ W: 10, E: 11, N: 12, S: 13 })[edge] : 2;
   }
   update(dt) {
@@ -2626,7 +2694,10 @@ class Fold {
     let a = 0, glow = 0;
     if (t < this.warn) { glow = smooth(0, this.warn, t); a = Math.sin(t * 40) * 0.004 * glow; }
     else if (t < this.warn + this.rise) { const k = (t - this.warn) / this.rise; a = this.target * easeOutBack(k); glow = 1 - k; if (!this.fired) { this.fired = true; AUDIO.fold(this.center()); EVENTS.push({ type: 'fold', at: this.center(), big: Math.abs(this.target) > 1 }); } }
-    else if (t < this.warn + this.rise + this.hold) a = this.target + Math.sin((t - this.warn) * 1.3) * 0.01;
+    else if (t < this.warn + this.rise + this.hold) {
+      if (this.amb && GAME.car) { const c = this.center(), im = imageOf(c[0], c[2], GAME.car.pos[0], GAME.car.pos[2]); if (Math.hypot(im[0] - GAME.car.pos[0], im[1] - GAME.car.pos[2]) < 420) this.hold = t - this.warn - this.rise; }
+      a = this.target + Math.sin((t - this.warn) * 1.3) * 0.01;
+    }
     else if (t < this.warn + this.rise + this.hold + this.ret) { const k = (t - this.warn - this.rise - this.hold) / this.ret; a = this.target * (1 - easeInOut(k)); }
     else { glowRect(this.rect, 0, 0); freeRegion(this.r); m4ident(TMP4); return true; }
     glowRect(this.rect, glow, this.wt);
@@ -2722,7 +2793,7 @@ const DIRECTOR = {
   clearAll() {
     for (const a of ANOM) { if (a.r) freeRegion(a.r); }
     ANOM.length = 0;
-    CITY.TS.fill(0); CITY.dirty0 = 0; CITY.dirty1 = N - 1; BUSY.fill(0);
+    CITY.TS.fill(0); CITY.dirty0 = 0; CITY.dirty1 = N - 1; BUSY.fill(0); NOANOM.fill(0);
     for (const r of REGIONS) { r.active = false; m4ident(r.M); m4ident(r.Mprev); m4ident(r.Minv); }
   },
   update(dt, car, S, active) {
@@ -2733,19 +2804,16 @@ const DIRECTOR = {
     this.ambNext -= dt;
     if (this.ambNext <= 0) {
       this.ambNext = active ? rnd(0.45, 1.0) / Math.min(2, 0.7 + L * 0.3) : rnd(0.35, 0.8);
-      const a = rnd(0, TAU), d = rnd(200, 900);
+      const a = rnd(0, TAU), d = rnd(480, 1000);
       const ax = car.pos[0] + Math.cos(a) * d, az = car.pos[2] + Math.sin(a) * d;
-      const lr = lotAt(ax, az);
+      let lr = lotAt(ax, az); if (lr && rectNoAnom(lr)) lr = null;
       // keep region slots free for gameplay hazards near the player
       const freeReg = REGIONS.reduce((n, g) => n + (g.active ? 0 : 1), 0);
       const r = freeReg > 9 ? Math.random() : 0.5 + Math.random() * 0.5;
       if (lr) {
-        if (r < 0.5) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W', 'MX', 'MZ']), rnd(1.2, 3.1) * (Math.random() < 0.5 ? -1 : 1), { warn: 0.5, rise: 2.4, hold: rnd(6, 14), ret: 3, lift: rnd(20, 160) }));
+        if (r < 0.5) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W', 'MX', 'MZ']), rnd(1.2, 3.1) * (Math.random() < 0.5 ? -1 : 1), { warn: 0.5, rise: 2.4, hold: rnd(6, 14), ret: 2.5, lift: rnd(20, 160), amb: true }));
         else if (r < 0.75) ANOM.push(new Twist(lr, rnd(-5, 5)));
         else ANOM.push(new Rise(rectTiles(lr), 40, 180, { warn: 0.3, hold: rnd(5, 10), sink: Math.random() < 0.35 }));
-      } else if (r < 0.5 && freeReg > 9) { // far intersections spin like gears
-        const ix = Math.round(wrapW(ax) / T / P) * P, iz = Math.round(wrapW(az) / T / P) * P;
-        ANOM.push(new Spin(ix, iz, pick([-4, -2, 2, 4])));
       }
     }
     if (!active) return;
@@ -2781,7 +2849,7 @@ const DIRECTOR = {
         ANOM.push(new Collapse(tiles, { warn, voidT: rnd(8, 14) }));
       } else if (w < 0.72) {
         const lr = lotAt(px, pz) || lotAt(px + 40, pz + 40);
-        if (lr) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W']), Math.random() < 0.5 ? rnd(0.3, 0.55) : rnd(1.35, 1.75), { warn, rise: 1.4, hold: rnd(5, 9), lift: Math.random() < 0.3 ? rnd(5, 25) : 0 }));
+        if (lr) ANOM.push(new Rise(rectTiles(lr), 30, 110, { warn, hold: rnd(5, 9), sink: Math.random() < 0.4 }));
       } else if (w < 0.88 && unlockRise) {
         const cx = Math.floor(wrapW(px) / T), cz = Math.floor(wrapW(pz) / T); const tiles = [];
         const along = Math.abs(dir[0]) > Math.abs(dir[1]);
@@ -2795,12 +2863,13 @@ const DIRECTOR = {
       // convergence: extra folds right around
       if (this.conv > 0) {
         const a = rnd(0, TAU); const lr = lotAt(car.pos[0] + Math.cos(a) * 110, car.pos[2] + Math.sin(a) * 110);
-        if (lr) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W']), rnd(1.2, 2.4), { warn: 0.8, rise: 1.5, hold: 5, lift: rnd(10, 40) }));
+        if (lr) ANOM.push(new Rise(rectTiles(lr), 60, 160, { warn: 0.8, hold: 5 }));
       }
     }
   },
   tick(dt) { for (let i = ANOM.length - 1; i >= 0; i--) if (ANOM[i].update(dt)) ANOM.splice(i, 1); }
 };
+function rectNoAnom(r) { for (let iz = r[1]; iz <= r[3]; iz++) for (let ix = r[0]; ix <= r[2]; ix++) if (NOANOM[tid(ix, iz)]) return true; return false; }
 function rectTiles(r) { const out = []; tilesRect(r[0], r[1], r[2], r[3], (ix, iz) => out.push([ix, iz])); return out; }
 
 // ================= RENDERER =================
@@ -3301,7 +3370,8 @@ function showResults() {
 function updateGems(dt) {
   const car = GAME.car, R = GAME.run;
   const cp = [wrapW(car.pos[0]), wrapW(car.pos[2])];
-  if (GAME.race) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-6, -2, 2, 6]); for (let k = 0; k < 4; k++) { const at = pathAt(race.rt, s + k * 7); const sd = [at.dir[2], 0, -at.dir[0]]; GAME.gems.push({ x: at.p[0] + sd[0] * lane, z: at.p[1] + sd[2] * lane, y: 1.4, t: rnd(0, 6), alive: true, fly: false }); } } }
+  if (GAME.race && GAME.race.rt.rib) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-5, -2, 2, 5]); for (let k = 0; k < 4; k++) { const fr = ribFrame(race.rt, s + k * 7); const p = vadd(vmadd(fr.P, fr.S, lane), vscale(fr.N, 1.4)); GAME.gems.push({ x: p[0], z: p[2], y: p[1], t: rnd(0, 6), alive: true, fly: false, rib: true }); } } }
+  else if (GAME.race) { const race = GAME.race; while (GAME.gems.length < 18) { const s = race.sLap + rnd(120, 380); const lane = pick([-6, -2, 2, 6]); for (let k = 0; k < 4; k++) { const at = pathAt(race.rt, s + k * 7); const sd = [at.dir[2], 0, -at.dir[0]]; GAME.gems.push({ x: at.p[0] + sd[0] * lane, z: at.p[1] + sd[2] * lane, y: 1.4, t: rnd(0, 6), alive: true, fly: false }); } } }
   // spawn along roads ahead
   while (!GAME.race && GAME.gems.length < 26) {
     const vh = Math.hypot(car.vel[0], car.vel[2]); const dir = vh > 3 ? [car.vel[0] / vh, car.vel[2] / vh] : [Math.sin(car.heading), Math.cos(car.heading)];
@@ -3316,10 +3386,9 @@ function updateGems(dt) {
   for (const g of GAME.gems) {
     g.t += dt;
     const dx = wrapD(g.x - cp[0]), dz = wrapD(g.z - cp[1]);
-    const gb = groundAt(g.x, 50, g.z, dt);
-    const gy = gb ? gb.h + 1.6 : -999;
-    if (!g.fly) g.y = damp(g.y, gy, 6, dt);
-    const dy = g.y - (car.pos[1] + 1); const dist = Math.hypot(dx, dy, dz);
+    if (!g.fly && !g.rib) { const gb = groundAt(g.x, 50, g.z, dt); const gy = gb ? gb.h + 1.6 : -999; g.y = damp(g.y, gy, 6, dt); }
+    const cu = car.rib ? car.surfN : [0, 1, 0];
+    const dy = g.y - (car.pos[1] + cu[1]); const dist = Math.hypot(dx - cu[0], dy, dz - cu[2]);
     if (dist < car.S.magnet) g.fly = true;
     if (g.fly) { const k = 1 - Math.exp(-14 * dt); g.x = wrapW(g.x - dx * k); g.z = wrapW(g.z - dz * k); g.y -= dy * k; }
     if (dist < 2.6) {
@@ -3368,6 +3437,20 @@ function updateCamera(dt, mode) {
     RND.cam = vadd(tgt, [Math.cos(a) * 8.5, 1.5 + Math.sin(GAME.demoT * 0.4) * 0.4, Math.sin(a) * 8.5]);
     const side = vnorm(vcross(vsub(tgt, RND.cam), [0, 1, 0]));
     RND.look = vadd(tgt, vscale(side, 2.6)); RND.fov = 40; RND.upv = [0, 1, 0];
+    return;
+  }
+  if (car.rib && car.rib.fr) { // chase cam that rolls with the ribbon
+    const fr = car.rib.fr, Nn = car.surfN, sp = clamp(car.speed / car.S.top, 0, 1.4);
+    const dir = vnorm(vadd(vscale(fr.T, 0.55), vscale(car.fwd(), 0.45)));
+    const want = vadd(vmadd(car.pos, dir, -(9 + sp * 2.4)), vscale(Nn, 3.3 + sp * 0.5));
+    GAME.camPos = vlerp(GAME.camPos, want, 1 - Math.exp(-dt * 9)); if (vlen(vsub(GAME.camPos, car.pos)) > 60) GAME.camPos = want;
+    GAME.camUp = vnorm(vlerp(GAME.camUp || Nn, Nn, 1 - Math.exp(-dt * 6)));
+    const look = vadd(vmadd(car.pos, dir, 4 + sp * 5), vscale(Nn, 1.2));
+    const s = GAME.shake + sp * sp * 0.03 + (car.boosting ? 0.03 : 0), t = GAME.time;
+    const sh = [Math.sin(t * 47) * s * 0.35, Math.sin(t * 53 + 1) * s * 0.28, Math.sin(t * 41 + 2) * s * 0.35];
+    RND.cam = vadd(GAME.camPos, sh); RND.look = vadd(look, vscale(sh, 0.5)); GAME.shake = damp(GAME.shake, 0, 6, dt);
+    const fovT = 66 + sp * 14 + (car.boosting ? 7 : 0) + (car.turbo > 0 ? 5 : 0) + (car.overdrive > 0 ? 6 : 0);
+    GAME.fovV = damp(GAME.fovV, fovT, car.boosting || car.turbo > 0 ? 7 : 3, dt); RND.fov = GAME.fovV; RND.upv = GAME.camUp;
     return;
   }
   const sp01 = clamp(car.speed / car.S.top, 0, 1.4);
@@ -3431,7 +3514,7 @@ function carFX(dt) {
   if (skidding) {
     for (const [k, p] of [['rl', rearL], ['rr', rearR], ['fl', frontL], ['fr', frontR]]) {
       if (k[0] === 'f' && !car.drifting) continue;
-      if (SKIDPREV[k] && vlen(vsub(p, SKIDPREV[k])) < 3) addSkid([SKIDPREV[k][0], SKIDPREV[k][1] + 0.03, SKIDPREV[k][2]], [p[0], p[1] + 0.03, p[2]], 0.32, k[0] === 'f' ? 0.35 : 0.65);
+      if (!car.rib && SKIDPREV[k] && vlen(vsub(p, SKIDPREV[k])) < 3) addSkid([SKIDPREV[k][0], SKIDPREV[k][1] + 0.03, SKIDPREV[k][2]], [p[0], p[1] + 0.03, p[2]], 0.32, k[0] === 'f' ? 0.35 : 0.65);
       SKIDPREV[k] = p;
     }
     if (Math.random() < 0.7) for (const p of [rearL, rearR]) emit([p[0], p[1] + 0.3, p[2]], [rnd(-1, 1), rnd(0.5, 2), rnd(-1, 1)], [0.6, 0.58, 0.62, 0.35], rnd(0.6, 1.2), rnd(0.8, 1.6), { drag: 1.5, grow: 2.5, add: false });
@@ -3496,6 +3579,14 @@ const SCENE = {
     // race: gates + rivals
     if (GAME.race && GATE) {
       const race = GAME.race, rt = race.rt, u = RND.world.u;
+      if (rt.rib) {
+        drawMesh(rt.mesh, IDENT, 0);
+        const sm = ((race.sLap % rt.L) + rt.L) % rt.L; let nextI = -1, bd = 1e9;
+        rt.gates.forEach((g, i) => { if (g.start) return; let d = g.u - sm; if (d < 0) d += rt.L; if (d < bd) { bd = d; nextI = i; } });
+        rt.gates.forEach((g, i) => { gl.uniform3fv(u.uTint, g.start ? [1.3, 1.3, 1.3] : i === nextI ? [0.4, 1.6, 1.9] : [0.35, 0.3, 0.45]); const M = g.M || (g.M = ribGateM(rt, g.u)); drawMesh(GATE, M, 0); if (g.start) drawMesh(GATE.check, M, 0); });
+        gl.uniform3fv(u.uTint, RND.tint);
+        for (const a of race.ai) { if (a.x === undefined) continue; drawCar(a.spec, m4qps(m4(), a.q, [a.x, a.y, a.z]), a.spin, 0); }
+      } else {
       if (GAME.track) drawMesh(GAME.track.mesh, IDENT, 1, [RND.cam[0] - wrapW(RND.cam[0]), 0, RND.cam[2] - wrapW(RND.cam[2])]);
       const nextC = rt.cornerS.findIndex(cs => cs > (((race.sLap % rt.L) + rt.L) % rt.L));
       for (let i = 0; i < rt.nc; i++) {
@@ -3509,6 +3600,7 @@ const SCENE = {
       }
       gl.uniform3fv(u.uTint, RND.tint);
       for (const a of race.ai) { if (a.x === undefined || a.fallT > 0) continue; const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); drawCar(a.spec, m4qps(m4(), a.q, [im[0], a.y, im[1]]), a.spin, 0); }
+      }
     }
     // gems
     for (const g of GAME.gems) {
@@ -3520,6 +3612,12 @@ const SCENE = {
 function buildCarDecals() {
   const car = GAME.car, out = [];
   if (!car.spec) return out;
+  if (car.rib) {
+    const Nn = car.surfN, f0 = car.fwd(), f = vnorm(vmadd(f0, Nn, -vdot(f0, Nn))), l = vcross(Nn, f), c = vmadd(car.pos, Nn, 0.07);
+    const q = (cc, hw, hl, col, a) => [vadd(vadd(cc, vscale(l, -hw)), vscale(f, -hl)), vadd(vadd(cc, vscale(l, hw)), vscale(f, -hl)), vadd(vadd(cc, vscale(l, hw)), vscale(f, hl)), vadd(vadd(cc, vscale(l, -hw)), vscale(f, hl)), col, a];
+    out.push(q(c, 1.6, 3.0, [0, 0, 0], 0.75)); out.push(q(c, 2.6, 3.6, car.spec.accent || [0.6, 0.4, 1], 0.35)); out.push(q(vmadd(c, f, 12), 5, 9, [1, 0.9, 0.75], 0.09));
+    return out;
+  }
   const g = groundAt(car.pos[0], car.pos[1] + 0.5, car.pos[2], 1 / 60);
   const gy = g ? car.pos[1] - (car.pos[1] + 0.5 - g.h) + 0.5 + 0.03 : car.pos[1];
   const hgt = g ? Math.max(0, car.pos[1] - g.h) : 50;
@@ -3891,7 +3989,9 @@ const HUD = {
     const rt = race.rt; const sm = ((race.sLap % rt.L) + rt.L) % rt.L;
     let best = 1e9, ti = 0; rt.cornerS.forEach((cs, i) => { let d = cs - sm; if (d < 0) d += rt.L; if (d < best) { best = d; ti = i; } });
     const tt = rt.turn[ti]; const arr = $('#rArrow'), tx = $('#rTurnT');
-    if (best > 420) { arr.textContent = '↑'; tx.textContent = '직진'; $('#rTurn').className = 'rturn'; }
+    let fb = 1e9, ff = null; if (rt.feats) for (const f of rt.feats) { let d = f.u - sm; if (d < -40) d += rt.L; if (d < fb) { fb = d; ff = f; } }
+    if (ff && fb < 320 && fb < best) { arr.textContent = ff.type === 'loop' || ff.type === 'helix' ? '⟲' : ff.type === 'arch' ? '✕' : '↻'; tx.textContent = fb > 0 ? `${ff.ko} ${Math.round(fb / 10) * 10}m` : ff.ko + '!'; $('#rTurn').className = 'rturn on' + (fb < 120 ? ' near' : ''); }
+    else if (best > 420) { arr.textContent = '↑'; tx.textContent = '직진'; $('#rTurn').className = 'rturn'; }
     else { arr.textContent = tt === 'L' ? '↰' : '↱'; tx.innerHTML = `${tt === 'L' ? '좌회전' : '우회전'} ${Math.max(0, Math.round(best / 10) * 10)}m` + (best < 95 && best > 8 && car.speed > 30 ? ` <em class="dcue">${TOUCH.on ? 'DRIFT' : 'SHIFT'} 드리프트!</em>` : ''); $('#rTurn').className = 'rturn on' + (best < 120 ? ' near' : ''); }
     // progress bar with racers
     const tot = rt.L * race.laps;
@@ -3900,7 +4000,7 @@ const HUD = {
     const W = innerWidth, H = innerHeight;
     race.ai.forEach((a, i) => {
       const t = $('#tag' + i); if (!t || a.x === undefined) return;
-      const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); const p = bendPt([im[0], a.y + 2.4, im[1]]);
+      const im = imageOf(a.x, a.z, RND.cam[0], RND.cam[2]); const tu = a.N || [0, 1, 0]; const p = bendPt([im[0] + tu[0] * 2.4, a.y + tu[1] * 2.4, im[1] + tu[2] * 2.4]);
       const v = RND.vp; const cx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12], cy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13], cw = v[3] * p[0] + v[7] * p[1] + v[11] * p[2] + v[15];
       const d = Math.hypot(im[0] - car.pos[0], im[1] - car.pos[2]);
       if (cw < 1 || d > 180 || a.fallT > 0) { t.style.opacity = 0; return; }
@@ -4235,7 +4335,8 @@ function runFrame(dt, sdt) {
   DIRECTOR.tick(sdt);
   // skills
   if (ctl && S.phase && pressed('KeyX') && car.phaseCd <= 0) { car.phase = 0.7; car.phaseCd = 8; AUDIO.whoosh(); RND.post.flash = [0.3, 1, 0.9, 0.25]; }
-  if (ctl && pressed('KeyR') && (car.rCd || 0) <= 0) { car.rCd = 3; const sp = findRoadSpawn(car.lastGroundPos[0], car.lastGroundPos[2]); car.pos = [car.lastGroundPos[0] + wrapD(sp.pos[0] - wrapW(car.lastGroundPos[0])), 2, car.lastGroundPos[2] + wrapD(sp.pos[2] - wrapW(car.lastGroundPos[2]))]; car.vel = [0, 0, 0]; car.heading = sp.heading; car.q = qaxis([0, 1, 0], sp.heading); damage(5, 'reset'); R.breakCombo(); }
+  if (car.rib) { if (ctl && pressed('KeyR') && (car.rCd || 0) <= 0) { car.rCd = 3; respawnRace('리셋'); } }
+  else if (ctl && pressed('KeyR') && (car.rCd || 0) <= 0) { car.rCd = 3; const sp = findRoadSpawn(car.lastGroundPos[0], car.lastGroundPos[2]); car.pos = [car.lastGroundPos[0] + wrapD(sp.pos[0] - wrapW(car.lastGroundPos[0])), 2, car.lastGroundPos[2] + wrapD(sp.pos[2] - wrapW(car.lastGroundPos[2]))]; car.vel = [0, 0, 0]; car.heading = sp.heading; car.q = qaxis([0, 1, 0], sp.heading); damage(5, 'reset'); R.breakCombo(); }
   car.rCd = (car.rCd || 0) - dt;
   if (S.overdrive && car.boosting && car.boost <= 1 && R.odReady) { car.overdrive = 3; R.odReady = false; HUD.pop('OVERDRIVE', '#ff4fd8', 1.3); AUDIO.convergence(); RND.post.flash = [1, .3, .9, .3]; }
   if (car.boost >= S.boostMax * 0.95) R.odReady = true;
@@ -4386,10 +4487,10 @@ const TOUCHUI = {
 
 // ================= RACE MODE (fixed courses, laps, rivals) =================
 const TRACKS = [
-  { id: 'loop', name: 'MERIDIAN LOOP', ko: '메리디안 순환로', start: [17, 14], moves: 'E3 N4 W2 N2 W3 S3 W2 S3 E4', laps: 3, desc: '코어를 끼고 도는 입문 코스. 직선이 길고 코너가 넓어요.' },
-  { id: 'old', name: 'OLD TOWN SWITCHBACK', ko: '구도심 갈지자', start: [14, 22], moves: 'E2 N1 E2 N2 W1 N1 W3 S2 W1 S1 E1 S1', laps: 3, desc: '코너가 쉴 새 없이 이어져요. 드리프트 터보를 모으기 좋아요.' },
-  { id: 'yard', name: 'CONTAINER YARD', ko: '컨테이너 야드', start: [13, 6], moves: 'E6 N2 W2 N2 W3 S2 W1 S2', laps: 3, desc: '산업지대의 긴 직선. 점프대와 끊긴 도로가 자주 나와요.' },
-  { id: 'grand', name: 'MÖBIUS GRAND', ko: '뫼비우스 그랑프리', start: [10, 10], moves: 'E12 N4 W4 N4 W4 N4 W4 S12', laps: 2, desc: '도시를 한 바퀴 크게 도는 최종 코스.' },
+  { id: 'loop', name: 'MERIDIAN LOOP', ko: '메리디안 순환로', start: [17, 14], moves: 'E3 N4 W2 N2 W3 S3 W2 S3 E4', laps: 3, fx: ['loop', 'cork', 'arch', 'twist', 'helix'], desc: '입문 코스. 루프 한 번, 코크스크루, 교차한 빌딩 아래를 지나요.' },
+  { id: 'old', name: 'OLD TOWN SWITCHBACK', ko: '구도심 갈지자', start: [14, 22], moves: 'E2 N1 E2 N2 W1 N1 W3 S2 W1 S1 E1 S1', laps: 3, fx: ['twist', 'arch', 'invert', 'roll2', 'cork'], desc: '노면이 기울고 비틀리는 코너가 쉴 새 없이 이어져요. 뒤집힌 채 달리는 구간도 있어요.' },
+  { id: 'yard', name: 'CONTAINER YARD', ko: '컨테이너 야드', start: [13, 6], moves: 'E6 N2 W2 N2 W3 S2 W1 S2', laps: 3, fx: ['helix', 'loop', 'invert', 'cork', 'arch'], desc: '긴 직선마다 나선 회전, 루프, 천장 주행이 기다려요.' },
+  { id: 'grand', name: 'MÖBIUS GRAND', ko: '뫼비우스 그랑프리', start: [10, 10], moves: 'E12 N4 W4 N4 W4 N4 W4 S12', laps: 2, fx: ['loop', 'helix', 'cork', 'invert', 'roll2', 'arch', 'twist'], desc: '모든 뒤틀림이 다 나오는 최종 코스. 도시를 크게 한 바퀴 돌아요.' },
 ];
 const DIRV = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
 const RT_CODE = (dx, dz) => dx > 0 ? 1 : dx < 0 ? 2 : dz > 0 ? 3 : 4;
@@ -4429,6 +4530,7 @@ function buildRoute(tr) {
   return { tr, corners, legs, pts, cum, L, cornerS, turn, nc };
 }
 function markRoute(rt, on) {
+  if (rt.rib) { ribMark(rt, on); if (!on && GAME.car) GAME.car.rib = null; return; }
   for (const lg of rt.legs) {
     const code = RT_CODE(lg.d[0], lg.d[1]);
     for (let k = 1; k < lg.n * P; k++) tsSet(lg.from[0] * P + lg.d[0] * k, lg.from[1] * P + lg.d[1] * k, 6, on ? code : 0);
@@ -4486,6 +4588,7 @@ function makeRivals(rt) {
   });
 }
 function updateRivals(dt, race, car) {
+  if (race.rt.rib) return updateRivalsRib(dt, race, car);
   const rt = race.rt;
   const ps = race.total;
   for (const a of race.ai) {
@@ -4536,6 +4639,7 @@ function updateRivals(dt, race, car) {
 
 // ---------- race director: hazards placed on the course ahead ----------
 function raceHazards(dt, race, car, S) {
+  if (race.rt.rib) return;
   race.hzNext -= dt; if (race.countdown > 0 || race.hzNext > 0) return;
   const D = DIFF(); race.hzNext = rnd(5.5, 8) / D.haz;
   const rt = race.rt; const sAhead = race.sLap + rnd(170, 320);
@@ -4581,23 +4685,29 @@ function startRace(ti) {
   const S = computeStats(spec);
   DIRECTOR.clearAll(); DIRECTOR.reset(); resetProps(); TRAFFIC.length = 0; GAME.gems.length = 0; GAME.echoes.length = 0; SKIDS.length = 0; PARTS.length = 0;
   if (!GATE) buildGate();
-  const rt = tr._rt || (tr._rt = buildRoute(tr));
+  const base = tr._rt || (tr._rt = buildRoute(tr));
+  const rt = tr._rb || (tr._rb = buildRibbon(tr, base));
   markRoute(rt, true);
-  if (GAME.track) removeTrack(GAME.track); GAME.track = buildTrack(rt);
-  const st = pathAt(rt, -31);
+  if (GAME.track) { removeTrack(GAME.track); GAME.track = null; }
   GAME.car.setup(spec, S);
-  const side = [st.dir[2], 0, -st.dir[0]];
-  GAME.car.reset([st.p[0] + side[0] * 2, 0.05, st.p[1] + side[2] * 2], Math.atan2(st.dir[0], st.dir[2]));
+  GAME.car.reset([0, 0, 0], 0);
+  GAME.car.rib = { rb: rt, u: -31, x: 2, psi: 0, vT: 0, vS: 0, hint: -1 };
+  const sf = ribPose(GAME.car, 0);
   GAME.run = new Run(spec); GAME.run.countdown = 3.6; GAME.run.rescues = 99;
   GAME.race = { ti, tr, rt, laps: tr.laps, lap: 0, sLap: -14, total: -14, hint: 0, t: 0, lapT: 0, best: 0, ai: makeRivals(rt), finished: [], hzNext: 4, off: 0, wrong: 0, started: false, countdown: 3.6, lastSafe: -31 };
   GAME.race.sLap = GAME.race.total = -31;
   for (const k in PRESSED) PRESSED[k] = false;
-  GAME.state = 'run'; GAME.camPos = vadd(GAME.car.pos, [-st.dir[0] * 25, 14, -st.dir[2] * 25]);
+  GAME.state = 'run'; GAME.camPos = vadd(vmadd(GAME.car.pos, sf.T, -25), vscale(sf.N, 14)); GAME.camUp = sf.N; GAME.race.base = base;
   document.body.classList.add('race');
   HUD.show(true); HUD.reset(); HUD.raceInit(GAME.race); TIPS.start(); AUDIO.setMusic(true, 'run'); UI.hideAll();
 }
 function respawnRace(msg) {
   const race = GAME.race, car = GAME.car, rt = race.rt;
+  if (rt.rib) {
+    const st = car.rib; st.x = 0; st.psi = 0; st.vT = Math.max(18, st.vT); st.vS = 0; const fr = ribPose(car, 0); car.invuln = 1.5;
+    GAME.camPos = vadd(vmadd(car.pos, fr.T, -14), vscale(fr.N, 5)); GAME.camUp = fr.N;
+    RND.post.flash = [0.4, 0.9, 1, 0.5]; HUD.pop(msg || 'RESPAWN', '#7fdcff', 0.9); GAME.run.breakCombo(); return;
+  }
   const s = race.lastSafe;
   const at = pathAt(rt, s);
   const base = [at.p[0], 3, at.p[1]];
@@ -4608,6 +4718,7 @@ function respawnRace(msg) {
   RND.post.flash = [0.4, 0.9, 1, 0.5]; HUD.pop(msg || 'RESPAWN', '#7fdcff', 0.9); GAME.run.breakCombo();
 }
 function updateRaceProgress(dt, race, car) {
+  if (race.rt.rib) return updateRaceProgressRib(dt, race, car);
   const rt = race.rt; if (race.over) return;
   if (race.countdown > 0) { race.countdown -= dt; if (race.countdown <= 0) race.started = true; return; }
   race.t += dt; race.lapT += dt;
@@ -4670,6 +4781,317 @@ function raceResults() {
   const list = racePositions(race);
   UI.raceResults({ race, pos, reward, trackBonus, earned, done, cBonus, newBest, ups, logs, list, unlockedNew: pos <= 3 && race.ti + 1 < TRACKS.length && (SAVE.unlocked === race.ti + 1) });
   GAME.race = null; setupDemo();
+}
+
+// ================= SKYWAY: twisted 3D race ribbon — the car sticks to it at any angle =================
+const RW = 7.5, RDS = 1.5;
+const NOANOM = new Uint8Array(N * N); // tiles near the ribbon: no far-off anomalies there
+const RIB_KO = { loop: '루프', helix: '나선 회전', cork: '코크스크루', twist: '트위스트', invert: '천장 주행', roll2: '더블 롤', arch: '교차 빌딩' };
+const RIB_NEED = { loop: 120, helix: 40, cork: 150, twist: 80, invert: 240, roll2: 190, arch: 50 };
+const ease3 = t => { t = clamp(t, 0, 1); return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+const bump01 = (t, e) => smooth(0, e, t) * (1 - smooth(1 - e, 1, t));
+function buildRibbon(tr, rt) {
+  const R = mulberry(777 + tr.id.length * 131 + tr.moves.length * 17);
+  const RC = 30, C = rt.corners, nc = C.length;
+  // ---- 1. base path: grid route with wide fillets, sampled every RDS ----
+  const bp = [], strt = [], cornerK = [], turns = [];
+  const dirOf = (a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1; return [dx / l, dz / l]; };
+  for (let i = 0; i < nc; i++) {
+    const A = C[i], B = C[(i + 1) % nc], Cn = C[(i + 2) % nc];
+    const d1 = dirOf(A, B), d2 = dirOf(B, Cn);
+    const p0 = [A[0] + d1[0] * RC, A[1] + d1[1] * RC], p1 = [B[0] - d1[0] * RC, B[1] - d1[1] * RC];
+    const len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]); const n = Math.max(2, Math.round(len / RDS));
+    strt.push({ k0: bp.length, n, len });
+    for (let k = 0; k < n; k++) bp.push([lerp(p0[0], p1[0], k / n), lerp(p0[1], p1[1], k / n)]);
+    if (Math.abs(d1[0] * d2[1] - d1[1] * d2[0]) < 0.05) { // straight through: just keep going
+      const q1 = [B[0] + d2[0] * RC, B[1] + d2[1] * RC], m = Math.max(2, Math.round(2 * RC / RDS));
+      for (let k = 0; k < m; k++) bp.push([lerp(p1[0], q1[0], k / m), lerp(p1[1], q1[1], k / m)]);
+      continue;
+    }
+    let pr = [-d1[1], d1[0]]; if (pr[0] * d2[0] + pr[1] * d2[1] < 0) pr = [-pr[0], -pr[1]];
+    const cc = [p1[0] + pr[0] * RC, p1[1] + pr[1] * RC], q1 = [B[0] + d2[0] * RC, B[1] + d2[1] * RC];
+    const a0 = Math.atan2(p1[1] - cc[1], p1[0] - cc[0]); let da = Math.atan2(q1[1] - cc[1], q1[0] - cc[0]) - a0;
+    da = ((da + PI) % TAU + TAU) % TAU - PI;
+    const na = Math.max(2, Math.round(Math.abs(da) * RC / RDS));
+    cornerK.push(bp.length + (na >> 1));
+    const cr = (B[0] - A[0]) * (Cn[1] - B[1]) - (B[1] - A[1]) * (Cn[0] - B[0]); turns.push(cr > 0 ? 'R' : 'L');
+    for (let k = 0; k < na; k++) { const a = a0 + da * k / na; bp.push([cc[0] + Math.cos(a) * RC, cc[1] + Math.sin(a) * RC]); }
+  }
+  const nb = bp.length;
+  // ---- 2. plan heights + one feature per straight ----
+  const H = new Float32Array(nb), W = new Float32Array(nb), ROLL = new Float32Array(nb), CR = new Float32Array(nb);
+  const ins = {}, featK = [];
+  const LEVELS = [1.5, 22, 45, 70, 95];
+  const startK = Math.round(170 / RDS), endK = Math.round(40 / RDS);
+  const range = i => { const st = strt[i]; return [st.k0 + (i === 0 ? startK : 0), st.k0 + st.n - (i === nc - 1 ? endK : 0)]; };
+  const availOf = i => { const [a, b] = range(i); return Math.max(0, (b - a) * RDS); };
+  const capAfter = []; { let acc = 0; for (let i = nc - 1; i >= 0; i--) { capAfter[i] = 1.5 + acc * 0.5; acc += availOf(i); } }
+  let cur = 1.5, fi = 0; const pool = tr.fx, used = {};
+  for (let i = 0; i < nc; i++) {
+    const st = strt[i], k0 = st.k0, kN = st.k0 + st.n; const [ka, kb] = range(i); const avail = availOf(i);
+    const lvls = (i === nc - 1 ? [1.5] : LEVELS).filter(v => v <= capAfter[i]);
+    let end = cur, type = null, Hh = 0, tgt = cur;
+    // try the next feature in the pool, with a height change that still leaves room for it
+    for (let tries = 0; tries < pool.length && !type; tries++) {
+      const t = pool[(fi + tries) % pool.length];
+      if ((used[t] || 0) >= 2) continue;
+      const room = avail - RIB_NEED[t] - 16; if (room < 0) continue;
+      const cands = lvls.map(v => { const hh = t === 'helix' ? (v >= 31.5 ? 30 : -30) : 0; return { v, hh, tg: v - hh }; })
+        .filter(c => c.tg >= 1.5 && c.tg <= 100 && (Math.abs(c.tg - cur) < 0.1 || Math.max(40, Math.abs(c.tg - cur) / 0.55) <= room));
+      if (!cands.length) continue;
+      const ch = cands.filter(c => Math.abs(c.v - cur) > 5), list = ch.length ? ch : cands, c = list[Math.floor(R() * list.length)];
+      type = t; end = c.v; Hh = c.hh; tgt = c.tg; used[t] = (used[t] || 0) + 1; fi = (fi + tries + 1) % pool.length;
+    }
+    if (!type) {
+      const opts = lvls.filter(v => Math.abs(v - cur) <= avail * 0.5), ch = opts.filter(v => v !== cur);
+      end = i === nc - 1 ? 1.5 : ch.length ? ch[Math.floor(R() * ch.length)] : cur; tgt = end;
+    }
+    const dH = Math.abs(tgt - cur), tmin = Math.max(dH > 0.1 ? 40 : 0, dH / 0.55);
+    let tlen = type ? clamp(dH * 2.4, tmin, avail - RIB_NEED[type] - 16) : clamp(dH * 2.4, tmin, avail);
+    const tN = Math.max(1, Math.round(tlen / RDS));
+    const tk0 = type ? ka : Math.max(ka, Math.round((ka + kb - tN) / 2)), tk1 = Math.min(kb, tk0 + tN);
+    for (let k = k0; k < kN; k++) H[k] = k < tk0 ? cur : k >= tk1 ? tgt : lerp(cur, tgt, ease3((k - tk0) / Math.max(1, tk1 - tk0)));
+    const kArcEnd = i + 1 < nc ? strt[i + 1].k0 : nb;
+    for (let k = kN; k < kArcEnd; k++) H[k] = end;
+    if (type) {
+      const half = Math.round(RIB_NEED[type] / 2 / RDS);
+      const kc = clamp(Math.round((tk1 + 8 + kb) / 2), tk1 + 8 + half, kb - half);
+      const dir = R() < 0.5 ? 1 : -1;
+      featK.push({ k: kc - half, type });
+      if (type === 'loop') {
+        const LS = 8.5;
+        for (let k = kc - 30; k < kc; k++) W[k] = -LS * ease3((k - (kc - 30)) / 30);
+        for (let k = kc; k < kc + 30; k++) W[k] = LS * (1 - ease3((k - kc) / 30));
+        ins[kc] = { type, R: 22, LS };
+      } else if (type === 'helix') {
+        ins[kc] = { type, R: 48, Hh, side: dir };
+        for (let k = kc; k < kN; k++) H[k] = end;
+      } else if (type !== 'arch') {
+        for (let k = kc - half; k < kc + half; k++) {
+          const t = (k - (kc - half)) / (2 * half);
+          let rl = 0, r = 0;
+          if (type === 'cork') { rl = TAU * ease3(t); r = 8 * bump01(t, 0.18); }
+          else if (type === 'twist') { rl = TAU * ease3(t); }
+          else if (type === 'roll2') { rl = 2 * TAU * ease3(t); r = 4.5 * bump01(t, 0.15); }
+          else if (type === 'invert') { rl = t < 0.2 ? PI * ease3(t / 0.2) : t < 0.8 ? PI : PI + PI * ease3((t - 0.8) / 0.2); r = 7 * bump01(t, 0.18); }
+          ROLL[k] = rl * dir; CR[k] = r;
+        }
+      }
+    }
+    cur = end;
+  }
+  // ---- 3. centreline samples (loops / helices are inserted, they add length without moving the base path) ----
+  const P = [], UP = [], NB = [], RL = [], CRr = [], KB = [];
+  for (let k = 0; k < nb; k++) {
+    const a = bp[(k - 1 + nb) % nb], b = bp[(k + 1) % nb]; const dl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const t0 = [(b[0] - a[0]) / dl, 0, (b[1] - a[1]) / dl], s0 = [t0[2], 0, -t0[0]];
+    const iz = ins[k];
+    if (iz) {
+      const B = [bp[k][0], H[(k - 1 + nb) % nb], bp[k][1]];
+      if (iz.type === 'loop') {
+        const n = Math.round(TAU * iz.R / RDS);
+        for (let j = 1; j < n; j++) {
+          const f = j / n * TAU, w = lerp(-iz.LS, iz.LS, ease3(j / n)), sf = Math.sin(f) * iz.R;
+          P.push([B[0] + t0[0] * sf + s0[0] * w, B[1] + iz.R * (1 - Math.cos(f)), B[2] + t0[2] * sf + s0[2] * w]);
+          UP.push([-t0[0] * Math.sin(f), Math.cos(f), -t0[2] * Math.sin(f)]); NB.push(1); RL.push(0); CRr.push(0); KB.push(k);
+        }
+      } else {
+        const n = Math.round(Math.hypot(TAU * iz.R, iz.Hh) / RDS);
+        for (let j = 1; j < n; j++) {
+          const f = j / n * TAU, sf = Math.sin(f) * iz.R, sd = (1 - Math.cos(f)) * iz.R * iz.side;
+          P.push([B[0] + t0[0] * sf + s0[0] * sd, B[1] + iz.Hh * ease3(j / n), B[2] + t0[2] * sf + s0[2] * sd]);
+          UP.push(null); NB.push(0); RL.push(0); CRr.push(0); KB.push(k);
+        }
+      }
+    }
+    P.push([bp[k][0] + s0[0] * W[k], H[k], bp[k][1] + s0[2] * W[k]]); UP.push(null); NB.push(0); RL.push(ROLL[k]); CRr.push(CR[k]); KB.push(k);
+  }
+  const n = P.length;
+  const tangOf = (arr, i) => vnorm(vsub(arr[(i + 1) % n], arr[(i - 1 + n) % n]));
+  let Tn = P.map((_, i) => tangOf(P, i));
+  // banking from horizontal curvature (smoothed)
+  const bank = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    if (NB[i]) continue;
+    const a = Tn[(i - 3 + n) % n], b = Tn[(i + 3) % n]; const al = Math.hypot(a[0], a[2]), bl = Math.hypot(b[0], b[2]); if (al < 0.3 || bl < 0.3) continue;
+    const ax = a[0] / al, az = a[2] / al, bx = b[0] / bl, bz = b[2] / bl;
+    const ang = Math.atan2(az * bx - ax * bz, ax * bx + az * bz);
+    const pa = P[(i - 3 + n) % n], pb = P[(i + 3) % n]; const dist = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]) || 1;
+    bank[i] = clamp(ang / dist * 34, -1.1, 1.1);
+  }
+  const bs = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let sm = 0, c = 0; for (let j = -16; j <= 16; j++) { const q = (i + j + n) % n; if (NB[q]) continue; sm += bank[q]; c++; } bs[i] = c ? sm / c : 0; }
+  // apply bank, roll and corkscrew offset
+  const P2 = [], Nr = [];
+  for (let i = 0; i < n; i++) {
+    const t = Tn[i], up = UP[i] || [0, 1, 0];
+    const n0 = vnorm(vsub(up, vscale(t, vdot(up, t)))), s0 = vcross(n0, t);
+    const b = NB[i] ? 0 : bs[i];
+    const nbk = vnorm(vadd(vscale(n0, Math.cos(b)), vscale(s0, Math.sin(b))));
+    const r = RL[i]; const nr = vnorm(vadd(vscale(nbk, Math.cos(r)), vscale(vcross(t, nbk), Math.sin(r))));
+    P2.push(vadd(P[i], vscale(vsub(nbk, nr), CRr[i]))); Nr.push(nr);
+  }
+  Tn = P2.map((_, i) => tangOf(P2, i));
+  const Pf = new Float32Array(n * 3), Tf = new Float32Array(n * 3), Nf = new Float32Array(n * 3), Sf = new Float32Array(n * 3), KG = new Float32Array(n), cum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const t = Tn[i]; const nn = vnorm(vsub(Nr[i], vscale(t, vdot(Nr[i], t)))); const ss = vcross(nn, t);
+    Pf.set(P2[i], i * 3); Tf.set(t, i * 3); Nf.set(nn, i * 3); Sf.set(ss, i * 3);
+    cum[i + 1] = cum[i] + vlen(vsub(P2[(i + 1) % n], P2[i]));
+  }
+  const L = cum[n];
+  for (let i = 0; i < n; i++) {
+    const a = Tn[(i - 1 + n) % n], b = Tn[(i + 1) % n]; const ds = (cum[i + 1] - cum[i]) + (i > 0 ? cum[i] - cum[i - 1] : cum[n] - cum[n - 1]);
+    KG[i] = vdot(vsub(b, a), [Sf[i * 3], Sf[i * 3 + 1], Sf[i * 3 + 2]]) / Math.max(ds, 0.01);
+  }
+  // start line 60 m into the first straight
+  let i0 = 0; while (i0 < n && (KB[i0] < 40 || NB[i0])) i0++;
+  const uOff = cum[i0];
+  const uOfK = k => { let i = 0; while (i < n && KB[i] < k) i++; return (((cum[Math.min(i, n - 1)] - uOff) % L) + L) % L; };
+  const rb = { rib: true, tr, n, L, cum, P: Pf, T: Tf, N: Nf, S: Sf, KG, uOff, turn: turns, nc };
+  rb.cornerS = cornerK.map(uOfK);
+  rb.feats = featK.map(f => ({ u: uOfK(f.k), type: f.type, ko: RIB_KO[f.type] })).sort((a, b) => a.u - b.u);
+  rb.pts = []; for (let i = 0; i < n; i += 4) rb.pts.push([Pf[i * 3], Pf[i * 3 + 2]]);
+  rb.gates = [{ u: 0, start: true }].concat(rb.feats.map(f => ({ u: (f.u - 30 + L) % L, feat: f })));
+  // ---- 4. mesh: neon deck, rock underside, rails ----
+  const mb = new MB();
+  const V = i => [Pf[i * 3], Pf[i * 3 + 1], Pf[i * 3 + 2]], NV = i => [Nf[i * 3], Nf[i * 3 + 1], Nf[i * 3 + 2]], SV = i => [Sf[i * 3], Sf[i * 3 + 1], Sf[i * 3 + 2]];
+  for (let i = 0; i < n; i++) {
+    const p = V(i), nn = NV(i), ss = SV(i), u = cum[i];
+    const Lp = vmadd(p, ss, RW), Rp = vmadd(p, ss, -RW), dn = vscale(nn, -1.6), up9 = vscale(nn, 0.9), ns = vscale(nn, -1), ms = vscale(ss, -1);
+    mb.m = 12; mb.c = [1, 1, 1]; mb.vert(Lp, nn, 1, u); mb.vert(Rp, nn, -1, u);
+    mb.m = 7; mb.vert(vadd(Lp, dn), ns); mb.vert(vadd(Rp, dn), ns);
+    mb.m = 10; mb.c = [0.09, 0.08, 0.12]; mb.vert(Lp, ss); mb.vert(vadd(Lp, dn), ss); mb.vert(Rp, ms); mb.vert(vadd(Rp, dn), ms);
+    mb.c = [0.16, 0.12, 0.2]; mb.vert(Lp, ms); mb.vert(vadd(Lp, up9), ms); mb.vert(Rp, ss); mb.vert(vadd(Rp, up9), ss);
+    mb.m = 3; mb.fuv = [2.4, 0];
+    mb.c = [1, 0.3, 0.85]; mb.vert(vadd(Lp, up9), nn); mb.vert(vadd(vmadd(Lp, ss, 0.35), up9), nn);
+    mb.c = [0.35, 0.85, 1]; mb.vert(vadd(Rp, up9), nn); mb.vert(vadd(vmadd(Rp, ss, -0.35), up9), nn);
+    mb.fuv = null;
+  }
+  for (let i = 0; i < n; i++) {
+    const a = i * 16, b = ((i + 1) % n) * 16;
+    for (let q = 0; q < 16; q += 2) mb.i.push(a + q, a + q + 1, b + q + 1, a + q, b + q + 1, b + q);
+  }
+  // ---- 5. crossed towers the course threads between ----
+  const hide = new Set(), noan = new Set();
+  const markSphere = (c, rr, minTop) => {
+    const tx0 = Math.floor((c[0] - rr) / T), tx1 = Math.floor((c[0] + rr) / T), tz0 = Math.floor((c[2] - rr) / T), tz1 = Math.floor((c[2] + rr) / T);
+    for (let tz = tz0; tz <= tz1; tz++) for (let tx = tx0; tx <= tx1; tx++) {
+      const bl = CITY.tileBoxes[tid(tx, tz)]; if (!bl) continue;
+      for (const b of bl) {
+        if (b.kind === 9 || b.seg) continue;
+        const dx = Math.max(b.x0 - c[0], 0, c[0] - b.x1), dy = Math.max(b.y0 - c[1], 0, c[1] - b.y1), dz = Math.max(b.z0 - c[2], 0, c[2] - b.z1);
+        if (dx * dx + dy * dy + dz * dz < rr * rr) hide.add(tid(b.ix, b.iz));
+      }
+    }
+  };
+  for (const f of featK) if (f.type === 'arch') {
+    let i = 0; while (i < n && KB[i] < f.k + Math.round(RIB_NEED.arch / 2 / RDS)) i++;
+    const p = V(i), t = [Tf[i * 3], 0, Tf[i * 3 + 2]]; const tl = Math.hypot(t[0], t[2]) || 1; const th = [t[0] / tl, 0, t[2] / tl], sh = [th[2], 0, -th[0]];
+    const yr = p[1], B = 34;
+    let yc = yr + 24;
+    for (let g = 0; g < 80; g++) { const ang = Math.atan2(yc + 8, B); if (-8 + (yc + 8) * (B - RW) / B - 6.5 / Math.cos(ang) > yr + 4.5) break; yc += 4; }
+    const col = pick(BCOL[1]);
+    for (const sg of [-1, 1]) {
+      const o = [p[0] + sh[0] * sg * B, -8, p[2] + sh[2] * sg * B];
+      const dv = vnorm([-sh[0] * sg * B, yc + 8, -sh[2] * sg * B]); const len = 2 * Math.hypot(B, yc + 8);
+      const X = vnorm(vcross(dv, th));
+      mb.mtx = new Float32Array([X[0], X[1], X[2], 0, dv[0], dv[1], dv[2], 0, th[0], th[1], th[2], 0, o[0], o[1], o[2], 1]);
+      mb.m = 2; mb.c = col; mb.uz = 1; mb.uw = 3 + R() * 40;
+      mb.box(-6, 0, -9, 6, len, 9, { facade: true });
+      mb.uz = 0; mb.uw = 0;
+      mb.m = 3; mb.fuv = [3, 0]; mb.c = sg > 0 ? [1, 0.3, 0.85] : [0.35, 0.85, 1];
+      mb.box(-6.3, 0, -9.3, -5.7, len, -8.7); mb.box(5.7, 0, 8.7, 6.3, len, 9.3); mb.fuv = null;
+      mb.mtx = null;
+      for (let d = 0; d < len; d += 8) markSphere(vmadd(o, dv, d), 14);
+    }
+  }
+  rb.mesh = mb.upload();
+  // ---- 6. carve the city around the ribbon ----
+  for (let i = 0; i < n; i += 2) {
+    const p = V(i), nn = NV(i), ss = SV(i);
+    markSphere(vmadd(p, nn, 1.6), 11.5);
+    for (const off of [-RW, 0, RW]) {
+      const q = vmadd(p, ss, off);
+      const lr = lotAt(q[0], q[2]);
+      if (lr) for (let tz = lr[1]; tz <= lr[3]; tz++) for (let tx = lr[0]; tx <= lr[2]; tx++) {
+        const bl = CITY.tileBoxes[tid(tx, tz)]; if (bl) for (const b of bl) if (b.kind !== 9 && !b.seg && b.y1 > q[1] - 16) hide.add(tid(b.ix, b.iz));
+      }
+      if (q[1] < 14) { const ix = Math.floor(q[0] / T), iz = Math.floor(q[2] / T); if (CITY.type[tid(ix, iz)] === 3) hide.add(tid(ix, iz)); }
+    }
+    if (i % 4 === 0) { const cx = Math.floor(p[0] / T), cz = Math.floor(p[2] / T); for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) noan.add(tid(cx + dx, cz + dz)); }
+  }
+  rb.hide = [...hide]; rb.noan = [...noan];
+  return rb;
+}
+function ribMark(rb, on) {
+  for (const t of rb.hide) tsSet(t % N, Math.floor(t / N), 7, on ? 1 : 0);
+  if (on) for (const t of rb.noan) NOANOM[t] = 1; else NOANOM.fill(0);
+}
+// frame at arc length u (unwrapped, u=0 is the start line); st.hint caches the sample index
+function ribFrame(rb, u, st) {
+  const L = rb.L, n = rb.n, cum = rb.cum; const s = (((u + rb.uOff) % L) + L) % L;
+  let i = st && st.hint >= 0 && st.hint < n ? st.hint : Math.floor(s / L * n);
+  for (let g = 0; g < n && !(cum[i] <= s && cum[i + 1] > s); g++) i = cum[i] > s ? (i - 1 + n) % n : (i + 1) % n;
+  if (st) st.hint = i;
+  const j = (i + 1) % n, t = (s - cum[i]) / Math.max(1e-6, cum[i + 1] - cum[i]);
+  const g3 = (A, k) => [A[k * 3], A[k * 3 + 1], A[k * 3 + 2]];
+  const P = vlerp(g3(rb.P, i), g3(rb.P, j), t), T = vnorm(vlerp(g3(rb.T, i), g3(rb.T, j), t));
+  let Nn = vnorm(vlerp(g3(rb.N, i), g3(rb.N, j), t)); Nn = vnorm(vsub(Nn, vscale(T, vdot(Nn, T))));
+  return { P, T, N: Nn, S: vcross(Nn, T), kg: lerp(rb.KG[i], rb.KG[j], t), i };
+}
+// place the player car on the ribbon from its track-space state
+function ribPose(car, dt) {
+  const st = car.rib, fr = ribFrame(st.rb, st.u, st); st.fr = fr;
+  const f3 = vnorm(vadd(vscale(fr.T, Math.cos(st.psi)), vscale(fr.S, Math.sin(st.psi))));
+  car.pos = vmadd(fr.P, fr.S, st.x);
+  car.vel = vadd(vscale(fr.T, st.vT), vscale(fr.S, st.vS));
+  const tq = qfromBasis(vcross(fr.N, f3), fr.N, f3);
+  car.q = dt > 0 ? qslerp(car.q, tq, 1 - Math.exp(-35 * dt)) : tq;
+  car.heading = Math.atan2(f3[0], f3[2]); car.surfN = fr.N;
+  return fr;
+}
+function ribGateM(rb, u) { const fr = ribFrame(rb, u); return m4qps(m4(), qfromBasis(fr.S, fr.N, fr.T), fr.P); }
+function updateRivalsRib(dt, race, car) {
+  const rb = race.rt, ps = race.total;
+  for (const a of race.ai) {
+    if (a.done) a.v = damp(a.v, 18, 1, dt);
+    const sm = ((a.s % rb.L) + rb.L) % rb.L;
+    let dc = 1e9; for (const cs of rb.cornerS) { let d = cs - sm; if (d < -20) d += rb.L; if (d >= -6 && d < dc) dc = d; }
+    let tgt = Math.min(a.vmax, Math.sqrt(30 * 30 + 2 * 24 * Math.max(0, dc - 8)));
+    const gap = a.s - ps; if (!a.done && race.started) { if (gap > 60) tgt *= 0.9; else if (gap < -120) tgt *= 1.1; }
+    if (race.countdown > 0) tgt = 0;
+    a.v += clamp(tgt - a.v, -30 * dt, 16 * dt); a.s += a.v * dt;
+    a.lane = damp(a.lane, a.laneT, 1.5, dt);
+    const fr = ribFrame(rb, a.s, a);
+    const p = vmadd(fr.P, fr.S, a.lane);
+    a.x = p[0]; a.y = p[1]; a.z = p[2]; a.N = fr.N;
+    a.q = qfromBasis(vcross(fr.N, fr.T), fr.N, fr.T);
+    a.spin += a.v / 0.37 * dt;
+    const st = car.rib; const du = a.s - st.u, dx = st.x - a.lane;
+    if (Math.abs(du) < 4.4 && Math.abs(dx) < 2.5 && race.countdown <= 0) {
+      const sg = Math.sign(dx) || 1;
+      st.x += sg * (2.5 - Math.abs(dx)) * 0.6; st.vS += sg * 4;
+      a.laneT = clamp(a.lane - sg * 3.5, -5.5, 5.5);
+      if (!a.bumpT || GAME.time - a.bumpT > 0.6) { a.bumpT = GAME.time; AUDIO.impact(0.3); GAME.shake = Math.max(GAME.shake, 0.3); for (let i = 0; i < 10; i++) emit(vmadd(car.pos, fr.S, -sg * 1.8), vadd(vscale(fr.N, rnd(1, 5)), [rnd(-6, 6), rnd(-2, 2), rnd(-6, 6)]), [1, .7, .3], 0.1, 0.4, { g: 20, streak: 0.02 }); }
+    } else if (Math.abs(du) < 10 && Math.abs(du) > 4 && Math.random() < 0.02) a.laneT = pick([-5, -2, 2, 5]);
+    if (!a.done && a.s >= rb.L * race.laps) { a.done = true; a.finishT = race.t; race.finished.push(a); }
+  }
+}
+function updateRaceProgressRib(dt, race, car) {
+  const rb = race.rt; if (race.over) return;
+  if (race.countdown > 0) { race.countdown -= dt; if (race.countdown <= 0) race.started = true; return; }
+  race.t += dt; race.lapT += dt;
+  race.sLap = car.rib.u; race.total = race.sLap;
+  const lapNow = Math.floor(race.sLap / rb.L);
+  if (lapNow > race.lap && race.sLap > 0) {
+    race.lap = lapNow; const lt = race.lapT; race.lapT = 0;
+    if (!race.best || lt < race.best) race.best = lt;
+    if (race.lap >= race.laps) { finishRace(); return; }
+    HUD.banner(race.lap === race.laps - 1 ? 'FINAL LAP' : `LAP ${race.lap + 1}`, race.lap === race.laps - 1 ? '마지막 바퀴!' : `랩 타임 ${fmtT(lt)}`); AUDIO.chime(4);
+  }
+  if (car.speed < 3) { race.stuck = (race.stuck || 0) + dt; if (race.stuck > 2.5) { race.stuck = 0; respawnRace('코스 복귀'); return; } } else race.stuck = 0;
+  if (car.rib.vT < -6) { race.wrong += dt; if (race.wrong > 1.2) HUD.wrong(true); } else { race.wrong = 0; HUD.wrong(false); }
+  race.dir = car.rib.fr ? car.rib.fr.T : [0, 0, 1];
 }
 
 // ---------- Kart-style track dressing: guardrails, closed side roads, arrow boards ----------
