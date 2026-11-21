@@ -2931,7 +2931,7 @@ function renderInit() {
   addEventListener('resize', resize);
 }
 function resize() {
-  const dpr = Math.min(devicePixelRatio || 1, 1.5) * RND.scale;
+  const dpr = Math.min(devicePixelRatio || 1, GQ().dpr) * RND.scale;
   RND.W = Math.max(320, Math.floor(innerWidth * dpr)); RND.H = Math.max(200, Math.floor(innerHeight * dpr));
   CANVAS.width = RND.W; CANVAS.height = RND.H; CANVAS.style.width = innerWidth + 'px'; CANVAS.style.height = innerHeight + 'px';
   [RND.rtScene, RND.rtB1, RND.rtB2, RND.rtB3, RND.rtB4].forEach(freeRT);
@@ -2941,7 +2941,7 @@ function resize() {
 }
 // ---------- particles ----------
 const PARTS = [];
-function addPart(p) { if (PARTS.length < RND.pMax - 10) PARTS.push(p); }
+function addPart(p) { if (PARTS.length < Math.min(RND.pMax - 10, GQ().parts)) PARTS.push(p); }
 function emit(pos, vel, col, size, life, o = {}) { addPart({ p: pos.slice(), v: vel.slice(), c: col, s: size, life, max: life, g: o.g || 0, drag: o.drag || 0, streak: o.streak || 0, grow: o.grow || 0, add: o.add !== false }); }
 function updateParts(dt) {
   for (let i = PARTS.length - 1; i >= 0; i--) {
@@ -3001,7 +3001,8 @@ function gatherLights(focus) {
   RND.pls.fill(0); RND.plc.fill(0);
   let k = 0;
   for (const L of RND.dynLights) { if (k >= 4) break; RND.pls.set([L.p[0], L.p[1], L.p[2], L.r], k * 4); RND.plc.set([L.c[0], L.c[1], L.c[2], L.i], k * 4); k++; }
-  for (const c of cand) { if (k >= 12) break; RND.pls.set([c[1], c[2], c[3], 30], k * 4); RND.plc.set([1, 0.7, 0.42, 2.6], k * 4); k++; }
+  const lmax = GQ().lights; if (k > lmax) { RND.pls.fill(0, lmax * 4); k = lmax; }
+  for (const c of cand) { if (k >= lmax) break; RND.pls.set([c[1], c[2], c[3], 30], k * 4); RND.plc.set([1, 0.7, 0.42, 2.6], k * 4); k++; }
 }
 // ---------- main render ----------
 const SKY = { top: [0.02, 0.012, 0.05], hor: [0.22, 0.08, 0.2], low: [0.01, 0.005, 0.02], coreCol: [1.0, 0.45, 0.25], sun: [0.35, 0.25, 0.4], sunDir: vnorm([0.3, 0.5, 0.2]) };
@@ -3061,7 +3062,7 @@ function visibleChunks(viewDist) {
     const dx = wrapD(ch.center[0] - wrapW(cx)), dz = wrapD(ch.center[2] - wrapW(cz));
     const d = Math.hypot(dx, dz);
     if (d > viewDist + half) continue;
-    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2 && !(RND.bend > 0.05 && d > 430)) continue;
+    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2 && !(GQ().back && RND.bend > 0.05 && d > 430)) continue;
     out.push({ ch, off: [cx + dx - ch.center[0], 0, cz + dz - ch.center[2]], d });
   }
   return out;
@@ -3099,7 +3100,7 @@ function renderFrame(time, scene) {
   gl.uniform1i(u.uInst, 1); gl.uniform1i(u.uTiled, 1);
   if (!RND.dbgNoWorld) for (const type in CITY.propTypes) {
     const pt = CITY.propTypes[type]; gl.bindVertexArray(pt.mesh.vao);
-    const pd = type === 'lamp' || type.startsWith('cont') || type === 'tlight' ? RND.viewDist : RND.viewDist * 0.55;
+    const pd = type === 'lamp' || type.startsWith('cont') || type === 'tlight' ? RND.viewDist : RND.viewDist * GQ().prop;
     for (const v of vis) {
       if (v.d > pd) continue;
       const ci = v.ch.cz * NC + v.ch.cx; const st = pt.ranges[ci * 2], cnt = pt.ranges[ci * 2 + 1]; if (!cnt) continue;
@@ -3114,7 +3115,7 @@ function renderFrame(time, scene) {
   drawMesh(RND.mobiusSky, m4qps(TMPM2, qmul(rot, qaxis([1, 0, 0], 0.35)), [core[0], 900, core[1]]), 0);
   drawMesh(RND.mobiusPlaza, m4qps(TMPM2, qaxis([0, 1, 0], time * 0.15), [core[0], 30 + Math.sin(time * 0.5) * 2, core[1]]), 0);
   // floating shards
-  for (const s of RND.shardInst) {
+  for (let si = 0, sn = GQ().shards; si < sn; si++) { const s = RND.shardInst[si];
     const a = s.a + time * s.orb; const p = imageOf(WS / 2 + Math.cos(a) * s.r, WS / 2 + Math.sin(a) * s.r, RND.cam[0], RND.cam[2]);
     const q = qnorm(qmul(qaxis([0, 1, 0], s.rot[0] + time * s.spd), qaxis([1, 0, 0], s.rot[1] + time * s.spd * 0.7)));
     drawMesh(RND.shards[s.m], m4qps(TMPM2, q, [p[0], s.y + Math.sin(time * 0.2 + s.a) * 10, p[1]], [s.s, s.s, s.s]), 0);
@@ -3123,7 +3124,7 @@ function renderFrame(time, scene) {
   setBend(u, 1);
   if (scene.drawObjects) scene.drawObjects(time);
   // inverted city in the sky
-  if (RND.flipFade < 0.98) {
+  if (RND.flipFade < 0.98 && GQ().flip) {
     const pre = m4(); pre[5] = -1; pre[13] = RND.flipH;
     gl.uniformMatrix4fv(u.uPre, false, pre); gl.uniform1f(u.uFlipFade, RND.flipFade);
     for (const v of vis) if (v.d > 200) drawMesh(v.ch.mesh, IDENT, 1, v.off);
@@ -3160,13 +3161,18 @@ function renderFrame(time, scene) {
   gl.disable(gl.DEPTH_TEST);
   gl.bindVertexArray(RND.quad);
   const pass = (prog, rt, tex, setup) => { gl.bindFramebuffer(gl.FRAMEBUFFER, rt ? rt.fb : null); gl.viewport(0, 0, rt ? rt.w : W, rt ? rt.h : H); gl.useProgram(prog.p); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(prog.u.uT, 0); if (setup) setup(prog.u); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); };
+  const bloom = GQ().bloom;
+  if (bloom >= 1) {
   pass(RND.bright, RND.rtB1, RND.rtScene.t);
   pass(RND.blur, RND.rtB2, RND.rtB1.t, u => gl.uniform2f(u.uDir, 1 / RND.rtB1.w, 0));
   pass(RND.blur, RND.rtB1, RND.rtB2.t, u => gl.uniform2f(u.uDir, 0, 1 / RND.rtB1.h));
+  }
+  if (bloom >= 2) {
   pass(RND.blur, RND.rtB3, RND.rtB1.t, u => gl.uniform2f(u.uDir, 2 / RND.rtB1.w, 0));
   pass(RND.blur, RND.rtB4, RND.rtB3.t, u => gl.uniform2f(u.uDir, 0, 2 / RND.rtB3.h));
   pass(RND.blur, RND.rtB3, RND.rtB4.t, u => gl.uniform2f(u.uDir, 2 / RND.rtB3.w, 0));
   pass(RND.blur, RND.rtB4, RND.rtB3.t, u => gl.uniform2f(u.uDir, 0, 2 / RND.rtB3.h));
+  }
   const P = RND.post;
   pass(RND.comp, null, RND.rtScene.t, u => {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RND.rtB1.t); gl.uniform1i(u.uB1, 1);
@@ -3638,7 +3644,7 @@ function buildCarDecals() {
 const SAVE_KEY = 'mobius_save_v1';
 const DEFAULT_SAVE = () => ({
   shards: 0, xp: 0, rank: 0, unlocked: 0, race: {}, cars: ['vespera'], car: 'vespera', colors: {}, skills: {}, best: 0, bestTime: 0, runs: 0,
-  logs: [], contracts: [], total: { dist: 0, time: 0, tricks: 0, conv: 0, takedowns: 0, voids: 0, echoes: 0 }, settings: { quality: 1, music: 0.7, sfx: 0.9, diff: 0, tips: true }
+  logs: [], contracts: [], total: { dist: 0, time: 0, tricks: 0, conv: 0, takedowns: 0, voids: 0, echoes: 0 }, settings: { quality: 0.8, music: 0.7, sfx: 0.9, diff: 0, tips: true }
 });
 let SAVE = DEFAULT_SAVE();
 function loadSave() {
@@ -4186,14 +4192,14 @@ const UI = {
     const S = SAVE.settings;
     this.screen('settings', `<div class="g-head"><div class="g-t">SETTINGS</div></div>
       <div class="set">
-        <label>그래픽 품질 <select id="sQ"><option value="0.6">낮음 (빠름)</option><option value="0.8">보통</option><option value="1">높음</option></select></label>
+        <label>그래픽 품질 <select id="sQ">${GFX.map((g, i) => `<option value="${i}">${g.ko}</option>`).join('')}</select></label>
         <label>음악 <input type="range" id="sM" min="0" max="1" step="0.05" value="${S.music}"></label>
         <label>초보 도움말 <input type="checkbox" id="sT" ${S.tips ? 'checked' : ''}></label>
         <label>효과음 <input type="range" id="sS" min="0" max="1" step="0.05" value="${S.sfx}"></label>
         <button id="sReset" class="danger"><span>RESET SAVE</span><small>진행 상황 전부 삭제</small></button>
       </div><button class="back" data-go="title">◂ BACK</button>`);
-    $('#sQ').value = String(S.quality); $('#sT').onchange = e => { S.tips = e.target.checked; saveGame(); };
-    $('#sQ').onchange = e => { S.quality = +e.target.value; applyQuality(); saveGame(); };
+    $('#sQ').value = String(S.gfx); $('#sT').onchange = e => { S.tips = e.target.checked; saveGame(); };
+    $('#sQ').onchange = e => { S.gfx = +e.target.value; applyQuality(); saveGame(); };
     $('#sM').oninput = e => { S.music = +e.target.value; if (AUDIO.mus) AUDIO.mus.gain.value = S.music * 0.55; saveGame(); };
     $('#sS').oninput = e => { S.sfx = +e.target.value; if (AUDIO.sfx) AUDIO.sfx.gain.value = S.sfx; saveGame(); };
     let armed = false; $('#sReset').onclick = () => { if (!armed) { armed = true; $('#sReset span').textContent = 'CONFIRM?'; return; } localStorage.removeItem(SAVE_KEY); SAVE = DEFAULT_SAVE(); refillContracts(); saveGame(); this.go('title'); };
@@ -4226,7 +4232,20 @@ const UI = {
     tick();
   },
 };
-function applyQuality() { RND.scale = SAVE.settings.quality; RND.viewDist = 700 + SAVE.settings.quality * 500; resize(); }
+// graphics presets: bloom 0 off / 1 light / 2 full; flip = upside-down sky city pass; back = far chunks behind the camera (curled overhead)
+const GFX = [
+  { id: 'potato', ko: 'POTATO · 최저', scale: 0.45, dpr: 1, view: 450, prop: 0.35, bloom: 0, flip: 0, back: 0, lights: 0, parts: 700, shards: 15 },
+  { id: 'low', ko: 'LOW · 낮음', scale: 0.6, dpr: 1, view: 650, prop: 0.45, bloom: 1, flip: 0, back: 0, lights: 4, parts: 1500, shards: 30 },
+  { id: 'medium', ko: 'MEDIUM · 보통', scale: 0.8, dpr: 1.25, view: 900, prop: 0.5, bloom: 2, flip: 1, back: 1, lights: 8, parts: 3000, shards: 50 },
+  { id: 'high', ko: 'HIGH · 높음', scale: 1, dpr: 1.5, view: 1200, prop: 0.55, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
+  { id: 'ultra', ko: 'ULTRA · 최고', scale: 1, dpr: 2, view: 1650, prop: 0.75, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
+];
+const GQ = () => RND.gfx || GFX[3];
+function applyQuality() {
+  const S = SAVE.settings;
+  if (!(S.gfx >= 0 && S.gfx < GFX.length)) S.gfx = S.quality <= 0.6 ? 1 : S.quality <= 0.8 ? 2 : 3; // migrate old 3-step setting
+  const g = RND.gfx = GFX[S.gfx]; RND.scale = g.scale; RND.viewDist = g.view; resize();
+}
 
 const WARN_COL = { 1: '#ff2a3a', 2: '#ff8a1a', 3: '#ffe020', 4: '#a64dff', 10: '#33ff8c' };
 const KO_POP = { 'TURBO': '터보!', 'SUPER TURBO': '슈퍼 터보!', 'ULTRA TURBO': '울트라 터보!', 'PERFECT LANDING': '완벽 착지', 'BIG AIR': '높이 날았어요', 'HUGE AIR': '엄청 날았어요', 'TAKEDOWN': '셔틀 격파', 'CLOSE CALL': '아슬아슬!', 'WIPEOUT': '뒤집혔어요', 'SLOPPY': '착지 불안', 'COMBO LOST': '콤보 끊김', 'ECHO HIT': '에코에게 맞음', 'ANCHOR LINE': '구조됨', 'UNBROKEN': '부활', 'OVERDRIVE': '한계 돌파', 'AFTERIMAGE': '시간이 느려져요', 'SMASH': '', 'WRECK': '', 'SURVIVE': '버텨요!' };
@@ -4406,7 +4425,7 @@ function boot() {
   ];
   let i = 0;
   const run = () => {
-    if (i >= steps.length) { $('#boot').classList.add('done'); setTimeout(() => $('#boot').remove(), 900); UI.title(); requestAnimationFrame(frame); return; }
+    if (i >= steps.length) { applyQuality(); $('#boot').classList.add('done'); setTimeout(() => $('#boot').remove(), 900); UI.title(); requestAnimationFrame(frame); return; }
     $('#boot .bmsg').textContent = steps[i][0]; $('#boot .bbar i').style.width = ((i + 1) / steps.length * 100) + '%';
     setTimeout(() => { try { steps[i][1](); } catch (e) { console.error(e); $('#boot .bmsg').textContent = '오류: ' + e.message; throw e; } i++; run(); }, 30);
   };
@@ -4422,7 +4441,7 @@ const TOUCHUI = {
     const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || matchMedia('(pointer:coarse)').matches;
     if (!isTouch) return;
     TOUCH.on = true; document.body.classList.add('touch');
-    if (!localStorage.getItem(SAVE_KEY)) { SAVE.settings.quality = 0.6; applyQuality(); }
+    if (!localStorage.getItem(SAVE_KEY)) { SAVE.settings.gfx = 1; applyQuality(); }
     const root = el('div', '', `
       <div class="t-stick" id="tStick"><div class="t-ring"></div><div class="t-knob" id="tKnob"></div><span class="t-hint">조향 · 공중 트릭</span></div>
       <div class="t-btns">
