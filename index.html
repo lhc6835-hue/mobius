@@ -2235,10 +2235,11 @@ function surfaceInTile(ix, iz, lx, ly, lz, region) {
 function groundAt(px, py, pz, dt) {
   if (!WARP.a) return groundAtFlat(px, py, pz, dt);
   const w = warpH(px, pz), gr = warpG(px, pz), ny = 1 / Math.sqrt(1 + gr[0] * gr[0] + gr[1] * gr[1]);
-  let pyf = py - w;
+  const pyf0 = py - w; let pyf = pyf0;
   if (pyf < -STEP && pyf * ny > -STEP * 1.5) pyf = -STEP + 0.01; // just inside a steep wall (a big vertical gap is a small one along the normal)
   const g = groundAtFlat(px, pyf, pz, dt); if (!g) return null;
-  const n = g.n; g.d = py - w - g.h; g.h += w; g.n = vnorm([n[0] - gr[0] * n[1], n[1], n[2] - gr[1] * n[1]]);
+  // keep the probe's own distance (it is measured in the moving region's frame when standing on a tilting slab) and add back any clamp
+  const n = g.n; g.d += pyf0 - pyf; g.h = py - g.d; g.n = vnorm([n[0] - gr[0] * n[1], n[1], n[2] - gr[1] * n[1]]);
   return g;
 }
 function groundAtFlat(px, py, pz, dt) {
@@ -2260,13 +2261,13 @@ function groundAtFlat(px, py, pz, dt) {
       GR.n = vnorm(m4dir(r.M, GR._n || [0, 1, 0]));
       const lq = [lp[0], lh, lp[2]]; const a = m4pt(r.M, lq), b = m4pt(r.Mprev, lq);
       GR.vel = vscale(vsub(a, b), 1 / REG_DT);
-      if (vlen(GR.vel) > 16) GR.vel = vscale(vnorm(GR.vel), 16);
+      if (vlen(GR.vel) > 60) GR.vel = vscale(vnorm(GR.vel), 60);
     }
   }
   return found ? GR : null;
 }
 // push car (cylinder radius rad, from y to y+hgt) out of walls. returns {push:[..], n, depth} or null
-function collideWalls(px, py, pz, rad, hgt) {
+function collideWalls(px, py, pz, rad, hgt, skipTile = -1) {
   py -= warpH(px, pz);
   const x = wrapW(px), z = wrapW(pz);
   let push = [0, 0, 0], maxN = null, maxDepth = 0, maxKind = 0;
@@ -2328,6 +2329,19 @@ function collideWalls(px, py, pz, rad, hgt) {
   };
   COLL_STAMP++;
   handle(x, py, z, 0, null);
+  // risen tiles (pillars shooting up next to you) are solid: their sides are walls. The tile you are riding is skipped.
+  { const ix = Math.floor(x / T), iz = Math.floor(z / T);
+    for (let tz = iz - 1; tz <= iz + 1; tz++) for (let tx = ix - 1; tx <= ix + 1; tx++) {
+      if (tid(tx, tz) === skipTile || tsGet(tx, tz, 0) !== 0 || tsGet(tx, tz, 4) > 0.5) continue;
+      const top = tileBase(tx, tz); if (top <= py + STEP) continue; // low enough to drive onto
+      const bx0 = tx * T, bx1 = bx0 + T, bz0 = tz * T, bz1 = bz0 + T, cx = clamp(x, bx0, bx1), cz = clamp(z, bz0, bz1);
+      const dx = x - cx, dz = z - cz, dist = Math.hypot(dx, dz); if (dist >= rad) continue;
+      let n, depth;
+      if (dist < 1e-4) { const l = x - bx0, rr = bx1 - x, f = z - bz0, bb = bz1 - z, m = Math.min(l, rr, f, bb);
+        if (m === l) { n = [-1, 0, 0]; depth = l + rad; } else if (m === rr) { n = [1, 0, 0]; depth = rr + rad; } else if (m === f) { n = [0, 0, -1]; depth = f + rad; } else { n = [0, 0, 1]; depth = bb + rad; } }
+      else { n = [dx / dist, 0, dz / dist]; depth = rad - dist; }
+      push = vmadd(push, n, depth); if (depth > maxDepth) { maxDepth = depth; maxN = n; maxKind = 0; }
+    } }
   for (const r of REGIONS) {
     if (!r.active) continue;
     const lp = m4pt(r.Minv, [x, py, z]);
@@ -2426,7 +2440,19 @@ class Car {
     this.slideT = (this.slideT || 0) - dt; { const yk = this.yawKick || 0; this.yawKick = (yk - Math.sign(yk) * Math.min(Math.abs(yk), 2.5 * dt)) * Math.exp(-1.5 * dt); }
     if (this.rib) { this.ribStep(dt, ev, ctl, steerIn, thr, brk, boostKey, topEff); return; }
     // ground probe
-    const g = groundAt(this.pos[0], this.pos[1], this.pos[2], dt);
+    let g = groundAt(this.pos[0], this.pos[1], this.pos[2], dt);
+    if ((this.grounded || (this.air || 0) < 1) && (!g || g.d < -0.4)) {
+      // the ground under us rose / tilted faster than we could follow and we're now inside it: ride it up instead of dropping through.
+      // Only the same support we were standing on (same tile or same moving region) — a pillar rising next to us stays a wall.
+      const tileNow = tid(Math.floor(wrapW(this.pos[0]) / T), Math.floor(wrapW(this.pos[2]) / T));
+      for (const up of [8, 30, 90, 200]) {
+        const pr = groundAt(this.pos[0], this.pos[1] + up, this.pos[2], dt);
+        if (pr && pr.h > this.pos[1] - 0.4 && (pr.reg ? pr.reg === this.groundReg : tileNow === this.groundTile)) {
+          this.pos[1] = pr.h + 0.02; this.vel[1] = Math.max(this.vel[1], 0); this.grounded = true; // stay planted and ride it
+          g = groundAt(this.pos[0], this.pos[1], this.pos[2], dt); break;
+        }
+      }
+    }
     let grounded = false;
     // tyres cling to the folded street walls of this dimension; elsewhere the usual slope limit applies
     const wallGrip = g && g.reg === 0 && onFoldWall(this.pos[0], this.pos[2]);
@@ -2438,7 +2464,7 @@ class Car {
     if (grounded) {
       const n = g.n;
       if (!this.grounded) this.land(g, ev);
-      this.groundReg = g.reg;
+      this.groundReg = g.reg; this.groundTile = tid(Math.floor(wrapW(this.pos[0]) / T), Math.floor(wrapW(this.pos[2]) / T));
       // snap to surface along normal
       this.pos = vmadd(this.pos, n, -g.d * n[1]);
       let rel = vsub(this.vel, g.vel);
@@ -2567,7 +2593,7 @@ class Car {
     // walls
     const rad = 1.9;
     if (this.phase <= 0) {
-      const c = collideWalls(this.pos[0], this.pos[1], this.pos[2], rad, 1.4);
+      const c = collideWalls(this.pos[0], this.pos[1], this.pos[2], rad, 1.4, (this.grounded || (this.air || 0) < 1) ? this.groundTile : -1);
       if (c) {
         this.pos = vadd(this.pos, c.push);
         const vn = vdot(this.vel, c.n);
