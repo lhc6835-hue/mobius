@@ -271,6 +271,21 @@ body.race.touch .h-radar{top:22vh}body.race.touch .h-legend{top:calc(22vh + 114p
 @media (max-width:900px){.trk{grid-template-columns:repeat(2,1fr);gap:8px;top:13vh}.tcard{padding:8px;gap:2px}.tcard canvas{max-width:70px}.tcard p{display:none}.tcard b{font-size:12px}.r-table{top:22vh;width:300px}.r-table div{padding:3px 10px;font-size:12px}}
 #ui.results .r-table~.r-earn{top:52vh}.menu.row{justify-content:center;width:96vw}.menu.row button{min-width:0;padding:10px 20px 10px 14px}
 body.race .h-radar{width:220px;height:220px}body.race .h-legend{top:calc(3vh + 226px);width:220px}
+/* ---- layout cleanup ---- */
+body.race .h-legend{display:none} /* no anomalies on the skyway */
+.trk{bottom:13vh;overflow-y:auto;align-content:start;scrollbar-width:thin}.tcard canvas{max-width:120px}
+body.touch .h-br{top:calc(max(12px,env(safe-area-inset-top)) + 54px);transform:scale(.52)}
+body.touch .h-radar{width:96px;height:96px}body.touch .h-legend{top:calc(20vh + 100px);width:110px;font-size:8px;opacity:.85}
+body.race.touch .h-radar{width:96px;height:96px;top:auto;bottom:4vh;left:calc(max(12px,env(safe-area-inset-left)) + 250px);opacity:.9}
+body.race.touch .h-race .rp{display:none}
+body.touch .g-head{top:max(10px,env(safe-area-inset-top));padding-bottom:6px}body.touch .g-t{font-size:26px}body.touch .dtabs button{padding:3px 10px;min-width:60px}body.touch .dtabs button b{font-size:12px}
+body.touch .trk{top:calc(max(10px,env(safe-area-inset-top)) + 62px);bottom:calc(max(8px,env(safe-area-inset-bottom)) + 44px);grid-template-columns:repeat(4,1fr);gap:8px}
+body.touch .tcard{padding:8px 10px;gap:2px}body.touch .tcard canvas{max-width:56px}body.touch .tcard p{display:none}body.touch .tcard b{font-size:12px}body.touch .tcard small{font-size:11px}body.touch .tcard .tn{font-size:18px;top:6px}body.touch .tcard .tm{font-size:10px;padding-top:4px}body.touch .medals i{width:14px;height:14px;font-size:9px;line-height:10px}
+body.touch .back{bottom:max(8px,env(safe-area-inset-bottom));padding:6px 14px}
+body.touch .tcard.lock::after{font-size:15px;top:22%;padding:2px 8px}body.touch .logo-sub{display:none}
+.rpos{top:auto;bottom:5vh;transform-origin:left bottom}.rpos b{font-size:120px}
+body.touch .h-race .rl{display:block!important;left:calc(max(12px,env(safe-area-inset-left)) + 118px);top:max(16px,env(safe-area-inset-top));font-size:14px;opacity:.9}
+body.touch .rpos{left:max(12px,env(safe-area-inset-left));right:auto;bottom:auto;top:max(8px,env(safe-area-inset-top));transform:scale(.5);transform-origin:top left}
 .dcue{font-style:normal;font-size:14px;margin-left:8px;padding:2px 10px;border-radius:14px;background:#ffb040;color:#14051a;animation:blink .35s infinite}
 </style>
 </head>
@@ -4440,7 +4455,7 @@ const HUD = {
   driftLvl(d) { const dr = $('#hDrift'); dr.classList.remove('flash'); void dr.offsetWidth; dr.classList.add('flash'); },
   hit(v) { document.body.classList.remove('hitfx'); void document.body.offsetWidth; document.body.classList.add('hitfx'); },
   warn(e, car) {
-    const T2 = { collapse: ['꺼짐', '바닥이 꺼져요! 빨간 곳은 피하세요', 'AVOID'], fold: ['접힘', '블록이 벽처럼 접혀요! 주황 곳은 돌아가세요', 'AVOID'], ramp: ['점프대', '초록 화살표 방향으로 그대로 달리면 점프!', 'GO'], rise: ['솟음', '바닥이 기둥처럼 솟아요! 노란 곳은 피하세요', 'AVOID'], spin: ['회전', '교차로가 빙글 돌아요. 보라 곳은 조심', 'CAREFUL'], gap: ['점프대', '점프대 너머 도로가 끊겨요! 부스트 켜고 그대로 날아 넘어가요', 'GO'], side: ['접힘', '코스 옆 블록이 접혀 올라와요. 코스는 안전해요', 'CAREFUL'] };
+    const T2 = { collapse: ['꺼짐', '바닥이 꺼지므로 빨간 곳은 피하세요', 'AVOID'], fold: ['접힘', '블록이 벽처럼 접혀 오르므로 주황 곳은 돌아가세요', 'AVOID'], ramp: ['점프대', '초록 화살표 방향으로 그대로 달리면 점프합니다', 'GO'], rise: ['솟음', '바닥이 기둥처럼 솟으므로 노란 곳은 피하세요', 'AVOID'], spin: ['회전', '교차로가 회전하므로 보라 곳에서는 주의하세요', 'CAREFUL'], gap: ['점프대', '점프대 너머 도로가 끊겨 있습니다. 부스트를 켜고 그대로 넘어가세요', 'GO'], side: ['접힘', '코스 옆 블록이 접혀 올라옵니다. 코스 위는 안전합니다', 'CAREFUL'] };
     const info = T2[e.kind] || ['이변', '이변 발생!', 'AVOID'];
     const w = $('#hWarn'); w.querySelector('span').innerHTML = `<em class="wk">${info[0]}</em>${info[1]}<i class="wv">${info[2] === 'GO' ? '달려!' : info[2] === 'CAREFUL' ? '조심' : '피해!'}</i>`;
     const im = imageOf(e.at[0], e.at[2], car.pos[0], car.pos[2]);
@@ -4488,7 +4503,7 @@ const HUD = {
     e.innerHTML = `<div class="rp"><b id="rPos">1</b><small id="rPosT">/6</small></div><div class="rl" id="rLap">LAP 1/${race.laps}</div><div class="rdiff" style="--c:${DIFFS[race.d].cc}">${DIFFS[race.d].name}</div><div class="rt" id="rTime">0:00.0</div><div class="rb" id="rBest">BEST --</div>
       <div class="rpos" id="rPosBig"><b id="rPosN">6</b><span><em>위</em><small id="rPosOf">/ 6</small></span><i id="rPosD"></i></div>
       <div class="rturn" id="rTurn"><i id="rArrow">↑</i><span id="rTurnT">직진</span></div>
-      <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rgim" id="rGim"></div><div class="rgs" id="rGs"></div><div class="rwrong" id="rWrong">역주행!  ↺  돌아가세요</div>`;
+      <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rgim" id="rGim"></div><div class="rgs" id="rGs"></div><div class="rwrong" id="rWrong">역주행 중입니다  ↺  방향을 돌리세요</div>`;
     let tg = $('#hTags'); if (!tg) { tg = el('div', 'h-tags'); tg.id = 'hTags'; this.root.appendChild(tg); }
     tg.innerHTML = race.ai.map((a, i) => `<div class="tag" id="tag${i}">${a.name}</div>`).join('');
   },
@@ -4600,7 +4615,7 @@ const UI = {
       <aside class="side">
         <div class="rank"><div class="rk-n">RANK ${SAVE.rank + 1}</div><div class="rk-t">${RANKS[SAVE.rank]}</div><div class="rk-bar"><i style="width:${Math.min(100, SAVE.xp / rankXP(SAVE.rank) * 100)}%"></i></div></div>
         <div class="diff">${DIFFS.map((d, i) => `<button class="${(SAVE.settings.diff || 0) === i ? 'sel' : ''}" data-d="${i}" style="--c:${d.cc}"><b>${d.ko}</b><small>${d.name}</small></button>`).join('')}</div>
-        <div class="diff-d">${['이변이 드물고 경고가 길어요. 떨어져도 두 번까지 끌어올려 줘요.', '적당히 긴장되는 기본 난이도예요.', '이변이 쉴 새 없이 터져요. 점수 보너스 35%.'][SAVE.settings.diff || 0]}</div>
+        <div class="diff-d">${['이변이 드물고 경고 시간이 깁니다. 추락해도 두 번까지 끌어올려 줍니다.', '기본 난이도입니다.', '이변이 쉴 새 없이 일어납니다. 점수 보너스 35%.'][SAVE.settings.diff || 0]}</div>
         <div class="kv"><span>SHARDS</span><b>◆ ${fmt(SAVE.shards)}</b></div>
         <div class="kv"><span>BEST</span><b>${fmt(SAVE.best)}</b></div>
         <div class="kv"><span>LONGEST</span><b>${fmtT(SAVE.bestTime)}</b></div>
@@ -4644,13 +4659,13 @@ const UI = {
     this.screen('brief', `
       <div class="g-head"><div class="g-t">HOW TO PLAY</div><div class="g-s">${first ? '첫 출격 전에 30초만' : '게임 방법'}</div></div>
       <div class="cards">
-        <div class="card"><div class="ci">🏁</div><h4>정해진 코스를 돌아 1등 하기</h4><p>라이벌 5대와 같은 코스를 정해진 바퀴만큼 돌아요. 길은 바닥의 <b class="cy">하늘색 화살표</b>와 <b class="cy">빛나는 게이트</b>를 따라가면 돼요. 화면 위에 다음 회전 방향이 나오고, 코스를 벗어나거나 떨어져도 자동으로 코스에 돌려놔요.</p></div>
-        <div class="card"><div class="ci warn">◆</div><h4>바닥 색 = 무슨 일이 일어날지</h4><p>이변 2초 전에 바닥이 색으로 깜빡여요.</p><div class="lg-tab"><div><i style="background:#ff2a3a"></i><b>빨강 X</b> 바닥이 꺼져요 → 피하기</div><div><i style="background:#ff8a1a"></i><b>주황 줄무늬</b> 벽처럼 접혀요 → 피하기</div><div><i style="background:#ffe020"></i><b>노랑 네모</b> 기둥이 솟아요 → 피하기</div><div><i style="background:#a64dff"></i><b>보라 원</b> 교차로가 돌아요 → 조심</div></div></div>
-        <div class="card"><div class="ci" style="color:#33ff8c">▲</div><h4>초록 화살표는 점프대</h4><p>도로에 <b style="color:#33ff8c">초록 화살표</b>가 흐르면 그 방향으로 도로가 들려요. 피하지 말고 <b>화살표 방향 그대로</b> 달리면 날아올라요. 공중에서 방향을 누르면 회전 묘기, 손을 떼면 알아서 균형을 잡아요.</p></div>
-        <div class="card"><div class="ci cy">✦</div><h4>샤드로 강해지기</h4><p>길 위의 <b class="cy">하늘색 결정</b>이 샤드예요. 모은 샤드로 스킬 트리에서 차를 강화하고 새 차를 열어요. 매판 조금씩 강해지니 처음엔 짧게 끝나도 괜찮아요.</p></div>
+        <div class="card"><div class="ci">🏁</div><h4>정해진 코스를 돌아 1등 하기</h4><p>라이벌 5대와 같은 코스를 정해진 바퀴만큼 달립니다. 길은 바닥의 <b class="cy">하늘색 화살표</b>와 <b class="cy">빛나는 게이트</b>를 따라가면 됩니다. 화면 위에 다음 회전 방향이 표시되고, 코스를 벗어나거나 떨어져도 자동으로 코스에 복귀합니다.</p></div>
+        <div class="card"><div class="ci warn">◆</div><h4>바닥 색 = 무슨 일이 일어날지</h4><p>이변이 일어나기 2초 전에 바닥이 색으로 깜빡입니다.</p><div class="lg-tab"><div><i style="background:#ff2a3a"></i><b>빨강 X</b> 바닥이 꺼짐 → 피하기</div><div><i style="background:#ff8a1a"></i><b>주황 줄무늬</b> 벽처럼 접힘 → 피하기</div><div><i style="background:#ffe020"></i><b>노랑 네모</b> 기둥이 솟음 → 피하기</div><div><i style="background:#a64dff"></i><b>보라 원</b> 교차로 회전 → 주의</div></div></div>
+        <div class="card"><div class="ci" style="color:#33ff8c">▲</div><h4>초록 화살표는 점프대</h4><p>도로에 <b style="color:#33ff8c">초록 화살표</b>가 흐르면 그 방향으로 도로가 들립니다. 피하지 말고 <b>화살표 방향 그대로</b> 달리면 날아오릅니다. 공중에서 방향을 누르면 회전 묘기를 하고, 손을 떼면 자동으로 균형을 잡습니다.</p></div>
+        <div class="card"><div class="ci cy">✦</div><h4>샤드로 강해지기</h4><p>길 위의 <b class="cy">하늘색 결정</b>이 샤드입니다. 모은 샤드로 스킬 트리에서 차를 강화하고 새 차를 열 수 있습니다. 매 판 조금씩 강해지므로 처음에는 짧게 끝나도 괜찮습니다.</p></div>
       </div>
       <div class="ctrl">${tc ? '<span><b>왼쪽 화면 끌기</b>방향</span><span><b>GAS</b>가속</span><span><b>BRAKE</b>감속·후진</span><span><b>DRIFT</b>꺾으면서 누르기</span><span><b>BOOST</b>순간 가속</span>' : '<span><b>W / ↑</b>가속</span><span><b>A D / ← →</b>방향</span><span><b>S / ↓</b>감속·후진</span><span><b>SHIFT</b>꺾으면서 누르면 드리프트</span><span><b>SPACE</b>부스트</span><span><b>R</b>막혔을 때 도로로 복귀</span><span><b>C</b>카메라 시점 바꾸기</span>'}</div>
-      <nav class="menu row"><button class="primary" data-go="${first ? 'go' : 'title'}"><span>${first ? "LET'S GO" : 'OK'}</span><small>${first ? '출발' : '알겠어요'}</small></button></nav>`);
+      <nav class="menu row"><button class="primary" data-go="${first ? 'go' : 'title'}"><span>${first ? "LET'S GO" : 'OK'}</span><small>${first ? '출발' : '확인'}</small></button></nav>`);
   },
   garage() {
     GAME.state = 'garage'; setupDemo(true);
@@ -4776,12 +4791,12 @@ function applyQuality() {
 }
 
 const WARN_COL = { 1: '#ff2a3a', 2: '#ff8a1a', 3: '#ffe020', 4: '#a64dff', 10: '#33ff8c' };
-const KO_POP = { 'TURBO': '터보!', 'SUPER TURBO': '슈퍼 터보!', 'ULTRA TURBO': '울트라 터보!', 'PERFECT LANDING': '완벽 착지', 'BIG AIR': '높이 날았어요', 'HUGE AIR': '엄청 날았어요', 'TAKEDOWN': '셔틀 격파', 'CLOSE CALL': '아슬아슬!', 'WIPEOUT': '뒤집혔어요', 'SLOPPY': '착지 불안', 'COMBO LOST': '콤보 끊김', 'ECHO HIT': '에코에게 맞음', 'ANCHOR LINE': '구조됨', 'UNBROKEN': '부활', 'OVERDRIVE': '한계 돌파', 'AFTERIMAGE': '시간이 느려져요', 'SMASH': '', 'WRECK': '', 'SURVIVE': '버텨요!' };
+const KO_POP = { 'TURBO': '터보!', 'SUPER TURBO': '슈퍼 터보!', 'ULTRA TURBO': '울트라 터보!', 'PERFECT LANDING': '완벽 착지', 'BIG AIR': '고공 비행', 'HUGE AIR': '초고공 비행', 'TAKEDOWN': '셔틀 격파', 'CLOSE CALL': '아슬아슬!', 'WIPEOUT': '전복', 'SLOPPY': '착지 불안', 'COMBO LOST': '콤보 끊김', 'ECHO HIT': '에코에게 맞음', 'ANCHOR LINE': '구조됨', 'UNBROKEN': '부활', 'OVERDRIVE': '한계 돌파', 'AFTERIMAGE': '시간 감속', 'SMASH': '', 'WRECK': '', 'SURVIVE': '버티세요!' };
 // ================= FIRST-RUN TIPS =================
 const TIPS = {
   start() { this.on = SAVE.settings.tips !== false && SAVE.runs < 4; this.i = 0; this.t = 0; this.cond = 0; this.once = {}; this.ev = null; HUD.tip(null); },
   flag(k) { if (!this.on || this.once[k]) return; this.once[k] = true; const tc = TOUCH.on;
-    const M = { warn: '바닥 색을 보세요! <b style="color:#ff4a55">빨강</b>·<b style="color:#ff9a3a">주황</b>·<b style="color:#ffe020">노랑</b>은 피하고, <b style="color:#33ff8c">초록 화살표</b>는 그대로 달리면 점프대예요', air: tc ? '공중에서 스틱을 밀면 회전 묘기! 손을 떼면 알아서 균형을 잡아요' : '공중에서 W·S·A·D로 회전 묘기! 손을 떼면 알아서 균형을 잡아요', land: '완벽 착지하면 부스트가 채워져요', lowhp: '내구도가 얼마 안 남았어요. 벽을 조심하세요' };
+    const M = { warn: '바닥 색을 확인하세요. <b style="color:#ff4a55">빨강</b>·<b style="color:#ff9a3a">주황</b>·<b style="color:#ffe020">노랑</b>은 피하고, <b style="color:#33ff8c">초록 화살표</b>는 그대로 달리면 점프대입니다', air: tc ? '공중에서 스틱을 밀면 회전 묘기를 합니다. 손을 떼면 자동으로 균형을 잡습니다' : '공중에서 W·S·A·D로 회전 묘기를 합니다. 손을 떼면 자동으로 균형을 잡습니다', land: '완벽하게 착지하면 부스트가 채워집니다', lowhp: '내구도가 얼마 남지 않았으므로 벽에 주의하세요' };
     if (M[k]) { this.ev = M[k]; this.evT = 4.5; } },
   update(dt, car, R) {
     if (!this.on || R.over || R.countdown > 0) { if (R.over) HUD.tip(null); return; }
@@ -4790,13 +4805,13 @@ const TIPS = {
     if (!car.grounded && car.air > 0.35) this.flag('air');
     if (this.ev) { HUD.tip(this.ev); this.evT -= dt; if (this.evT <= 0) { this.ev = null; HUD.tip(null); } return; }
     const steps = [
-      [tc ? '오른쪽 아래 <b>GAS</b>를 누르고 있으면 출발해요' : '<b>W</b>(또는 ↑)를 누르고 있으면 출발해요', () => car.speed > 12, 99],
-      [tc ? '왼쪽 화면을 손가락으로 끌어서 <b>방향</b>을 바꿔요' : '<b>A · D</b>(← →)로 방향을 바꿔요', () => Math.abs(car.steer) > 0.6, 7],
-      [tc ? '꺾으면서 <b>DRIFT</b>를 누르고 있다가, 불꽃 색이 바뀌면 떼세요. <b>터보</b>가 나가요' : '꺾으면서 <b>SHIFT</b>를 누르고 있다가, 불꽃 색이 바뀌면 떼세요. <b>터보</b>가 나가요', () => car.turbo > 0, 12],
-      [tc ? '<b>BOOST</b>로 순간 가속! 파란 게이지는 저절로 다시 차요' : '<b>SPACE</b>로 순간 가속! 파란 게이지는 저절로 다시 차요', () => car.boosting, 8],
-      ['길 위의 <b class="cy">하늘색 결정</b>을 주우면 차를 강화할 수 있어요', () => R.shards > 0, 9],
-      [GAME.race ? '바닥의 <b class="cy">하늘색 화살표</b>를 따라가세요. 화면 위에 다음 회전 방향이 나와요' : '오른쪽 위 <b>지도</b>에서 주황색은 위험, 하늘색은 샤드, 노란 점은 도시 중심이에요', () => false, 7],
-      [GAME.race ? '<b>초록 화살표</b> 점프대 뒤에는 끊긴 도로가 있을 수 있어요. <b>부스트</b>를 켜고 넘어가세요!' : '목표는 <b>오래 버티기</b>! 벽에 박거나 구멍에 빠지지만 않으면 돼요', () => false, 7],
+      [tc ? '오른쪽 아래 <b>GAS</b>를 누르고 있으면 출발합니다' : '<b>W</b>(또는 ↑)를 누르고 있으면 출발합니다', () => car.speed > 12, 99],
+      [tc ? '왼쪽 화면을 손가락으로 끌어서 <b>방향</b>을 바꿉니다' : '<b>A · D</b>(← →)로 방향을 바꿉니다', () => Math.abs(car.steer) > 0.6, 7],
+      [tc ? '꺾으면서 <b>DRIFT</b>를 누르고 있다가, 불꽃 색이 바뀌면 떼세요. <b>터보</b>가 발동합니다' : '꺾으면서 <b>SHIFT</b>를 누르고 있다가, 불꽃 색이 바뀌면 떼세요. <b>터보</b>가 발동합니다', () => car.turbo > 0, 12],
+      [tc ? '<b>BOOST</b>로 순간 가속합니다. 파란 게이지는 저절로 다시 찹니다' : '<b>SPACE</b>로 순간 가속합니다. 파란 게이지는 저절로 다시 찹니다', () => car.boosting, 8],
+      ['길 위의 <b class="cy">하늘색 결정</b>을 주우면 차를 강화할 수 있습니다', () => R.shards > 0, 9],
+      [GAME.race ? '바닥의 <b class="cy">하늘색 화살표</b>를 따라가세요. 화면 위에 다음 회전 방향이 표시됩니다' : '오른쪽 위 <b>지도</b>에서 주황색은 위험, 하늘색은 샤드, 노란 점은 도시 중심입니다', () => false, 7],
+      [GAME.race ? '<b>초록 화살표</b> 점프대 뒤에는 끊긴 도로가 있을 수 있습니다. <b>부스트</b>를 켜고 넘어가세요.' : '목표는 <b>오래 버티기</b>입니다. 벽에 부딪히거나 구멍에 빠지지 않도록 주의하세요', () => false, 7],
     ];
     if (this.i >= steps.length) { HUD.tip(null); return; }
     const [txt, done, max] = steps[this.i];
@@ -4947,7 +4962,7 @@ function runFrame(dt, sdt) {
 function boot() {
   AUDIO.preload();
   const cv = $('#gl');
-  try { glInit(cv); } catch (e) { $('#boot .bmsg').textContent = '이 브라우저는 WebGL2를 지원하지 않아요. 최신 크롬이나 엣지에서 열어 주세요.'; return; }
+  try { glInit(cv); } catch (e) { $('#boot .bmsg').textContent = '이 브라우저는 WebGL2를 지원하지 않습니다. 최신 크롬이나 엣지에서 열어 주세요.'; return; }
   loadSave();
   const steps = [
     ['도로 질감 굽는 중', () => renderInit()],
@@ -4987,7 +5002,7 @@ const TOUCHUI = {
         <button class="tb t-sk t-x" data-k="KeyX" data-p="1"><b>X</b></button>
       </div>
       <button class="t-pause" id="tPause">Ⅱ</button><button class="t-pause t-cam" id="tCam">◉</button>
-      <div class="t-rot">가로 화면으로 돌리면 더 넓게 보여요</div>`);
+      <div class="t-rot">가로 화면으로 돌리면 더 넓게 보입니다</div>`);
     root.id = 'touch'; document.body.appendChild(root);
     // buttons (multi-touch safe)
     root.querySelectorAll('.tb').forEach(b => {
@@ -5039,12 +5054,12 @@ const TOUCHUI = {
 
 // ================= RACE MODE (fixed courses, laps, rivals) =================
 const TRACKS = [
-  { id: 'loop', name: 'MERIDIAN LOOP', ko: '메리디안 순환로', start: [17, 14], moves: 'E3 N4 W2 N2 W3 S3 W2 S3 E4', laps: 3, fx: ['loop', 'cork', 'arch', 'twist', 'helix'], desc: '입문 코스. 루프 한 번, 코크스크루, 교차한 빌딩 아래를 지나요.' },
-  { id: 'old', name: 'OLD TOWN SWITCHBACK', ko: '구도심 갈지자', start: [14, 22], moves: 'E2 N1 E2 N2 W1 N1 W3 S2 W1 S1 E1 S1', laps: 3, fx: ['twist', 'arch', 'invert', 'roll2', 'cork'], desc: '노면이 기울고 비틀리는 코너가 쉴 새 없이 이어져요. 뒤집힌 채 달리는 구간도 있어요.' },
-  { id: 'yard', name: 'CONTAINER YARD', ko: '컨테이너 야드', start: [13, 6], moves: 'E6 N2 W2 N2 W3 S2 W1 S2', laps: 3, fx: ['helix', 'loop', 'invert', 'cork', 'arch'], desc: '긴 직선마다 나선 회전, 루프, 천장 주행이 기다려요.' },
+  { id: 'loop', name: 'MERIDIAN LOOP', ko: '메리디안 순환로', start: [17, 14], moves: 'E3 N4 W2 N2 W3 S3 W2 S3 E4', laps: 3, fx: ['loop', 'cork', 'arch', 'twist', 'helix'], desc: '입문 코스입니다. 루프와 코크스크루를 지나 교차한 빌딩 아래를 통과합니다.' },
+  { id: 'old', name: 'OLD TOWN SWITCHBACK', ko: '구도심 갈지자', start: [14, 22], moves: 'E2 N1 E2 N2 W1 N1 W3 S2 W1 S1 E1 S1', laps: 3, fx: ['twist', 'arch', 'invert', 'roll2', 'cork'], desc: '노면이 기울고 비틀리는 코너가 쉴 새 없이 이어집니다. 뒤집힌 채 달리는 구간도 있습니다.' },
+  { id: 'yard', name: 'CONTAINER YARD', ko: '컨테이너 야드', start: [13, 6], moves: 'E6 N2 W2 N2 W3 S2 W1 S2', laps: 3, fx: ['helix', 'loop', 'invert', 'cork', 'arch'], desc: '긴 직선마다 나선 회전, 루프, 천장 주행이 기다리고 있습니다.' },
   { id: 'harbor', name: 'HARBOR SPIRAL', ko: '항만 나선로', start: [20, 4], moves: 'E6 N3 W2 N3 W3 S2 W1 S4', laps: 3, fx: ['helix', 'roll2', 'loop', 'invert', 'arch'], desc: '부두를 따라 크게 감아 도는 나선 코스입니다. 연속 롤 구간에서는 속도를 조금 줄이는 편이 좋습니다.' },
   { id: 'mirror', name: 'MIRROR SPIRE', ko: '거울 첨탑', start: [4, 20], moves: 'E5 N2 E2 N3 W4 S1 W3 S4', laps: 3, fx: ['invert', 'cork', 'twist', 'loop', 'arch', 'roll2'], desc: '첨탑 사이를 뒤집힌 채로 통과하는 구간이 많습니다. 천장 주행이 자주 나옵니다.' },
-  { id: 'grand', name: 'MÖBIUS GRAND', ko: '뫼비우스 그랑프리', start: [10, 10], moves: 'E12 N4 W4 N4 W4 N4 W4 S12', laps: 2, fx: ['loop', 'helix', 'cork', 'invert', 'roll2', 'arch', 'twist'], desc: '모든 뒤틀림이 다 나오는 최종 코스. 도시를 크게 한 바퀴 돌아요.' },
+  { id: 'grand', name: 'MÖBIUS GRAND', ko: '뫼비우스 그랑프리', start: [10, 10], moves: 'E12 N4 W4 N4 W4 N4 W4 S12', laps: 2, fx: ['loop', 'helix', 'cork', 'invert', 'roll2', 'arch', 'twist'], desc: '모든 뒤틀림이 등장하는 대형 코스입니다. 도시를 크게 한 바퀴 돕니다.' },
   { id: 'zenith', name: 'ZENITH CIRCUIT', ko: '천정 서킷', start: [12, 26], moves: 'E8 S6 W3 N2 W3 S5 W2 N9', laps: 2, fx: ['loop', 'cork', 'invert', 'helix', 'roll2', 'twist', 'arch'], desc: '가장 길고 험한 마지막 코스입니다. 모든 뒤틀림이 쉬지 않고 이어지므로 끝까지 집중해야 합니다.' },
 ];
 const DIRV = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
