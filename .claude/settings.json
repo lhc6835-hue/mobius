@@ -1,0 +1,21 @@
+{
+  "enabledPlugins": {
+    "context-mode@context-mode": true,
+    "compact-handoff@claude-handoff": true,
+    "compact-handoff-answer@claude-handoff": true
+  },
+  "extraKnownMarketplaces": {
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      }
+    },
+    "claude-handoff": {
+      "source": {
+        "source": "github",
+        "repo": "REMvisual/claude-handoff"
+      }
+    }
+  }
+}
