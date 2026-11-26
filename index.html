@@ -203,7 +203,13 @@ body.touch .h-radar{right:auto;left:2vw;top:20vh;width:110px;height:110px}
 body.touch .h-tip{bottom:auto;top:30vh;font-size:13px}
 body.touch .h-warn{top:20vh;font-size:13px}
 .diff{display:flex;gap:6px;margin:14px 0 6px}.diff button{flex:1;padding:8px 4px;background:#ffffff0d;border:1px solid #ffffff22;text-align:center}.diff button b{display:block;font-size:14px}.diff button small{font:700 10px var(--fh);letter-spacing:.2em;color:#ffffff77}
-.diff button.sel{background:linear-gradient(160deg,#ff4fd8,#ff8a3d);color:#14051a;border-color:#fff}.diff button.sel small{color:#14051a}
+.diff button{border-top:3px solid var(--c)}.diff button b{color:var(--c)}.diff button.sel{background:var(--c);color:#14051a;border-color:var(--c);box-shadow:0 0 18px color-mix(in srgb,var(--c) 55%,transparent)}.diff button.sel b,.diff button.sel small{color:#14051a}
+.dtabs{display:flex;gap:6px}.dtabs button{padding:6px 14px;background:#ffffff0d;border:1px solid #ffffff22;border-bottom:3px solid var(--c);text-align:center;min-width:76px}.dtabs button b{display:block;font-size:14px;color:var(--c)}.dtabs button small{font:600 11px var(--fh);color:#ffffff99}
+.dtabs button.sel{background:var(--c);border-color:var(--c)}.dtabs button.sel b,.dtabs button.sel small{color:#14051a}
+.scr.tracks .tcard{border-top:3px solid var(--dc,#7fdcff)}.scr.tracks .tcard:hover{border-color:var(--dc,#7fdcff)}
+.medals{display:flex;gap:5px}.medals i{width:18px;height:18px;border-radius:50%;border:2px solid var(--c);opacity:.35;font:900 11px/14px var(--fd);text-align:center;font-style:normal;color:#14051a}.medals i.r{opacity:.8}.medals i.m{opacity:1;background:var(--c)}
+.dchip{font-style:normal;font:800 .8em var(--fh);padding:1px 8px;border:1px solid var(--c);color:var(--c);margin-right:4px}
+.h-race .rdiff{position:absolute;left:3vw;top:calc(3vh + 28px);font:800 11px var(--fd);letter-spacing:.14em;color:var(--c);border-left:3px solid var(--c);padding-left:6px}
 .diff-d{font-size:12px;color:#d8c8ee;line-height:1.5;margin-bottom:8px}
 #ui.brief{background:radial-gradient(ellipse at center,#0a0510cc,#000000ee)}
 .cards{position:absolute;left:4vw;right:4vw;top:16vh;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
@@ -247,7 +253,7 @@ body.touch .rpos{left:auto;right:3vw;top:40vh;transform:scale(.62);transform-ori
 .h-pops{transition:top .2s}body.race .h-tl{top:calc(3vh + 80px)}body.touch.race .h-tl{top:calc(1vh + 60px);left:20vw}body.race .h-pops{top:38vh}
 .rwrong{position:absolute;left:50%;top:40vh;transform:translateX(-50%);font:900 44px var(--fk);color:#ff3355;text-shadow:0 0 20px #ff0033;opacity:0;transition:.2s}.rwrong.on{opacity:1;animation:blink .5s infinite}
 .h-tags{position:absolute;inset:0;pointer-events:none}.h-tags .tag{position:absolute;left:0;top:0;padding:2px 9px;background:#140b1ecc;border:1px solid #ffb04088;border-radius:10px;font:700 11px var(--fh);letter-spacing:.1em;white-space:nowrap;opacity:0;transition:opacity .2s}
-body.touch .h-race .rp{transform:scale(.6);transform-origin:top left}body.touch .h-race .rl,body.touch .h-race .rt,body.touch .h-race .rb{display:none}body.touch .rturn{transform:translateX(-50%) scale(.75);transform-origin:top center;top:1vh}body.touch .rbar{top:calc(1vh + 50px)}
+body.touch .h-race .rp{transform:scale(.6);transform-origin:top left}body.touch .h-race .rl,body.touch .h-race .rdiff,body.touch .h-race .rt,body.touch .h-race .rb{display:none}body.touch .rturn{transform:translateX(-50%) scale(.75);transform-origin:top center;top:1vh}body.touch .rbar{top:calc(1vh + 50px)}
 body.race.touch .h-radar{top:22vh}body.race.touch .h-legend{top:calc(22vh + 114px)}
 .trk{position:absolute;left:4vw;right:4vw;top:16vh;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .tcard{position:relative;text-align:left;padding:18px;background:linear-gradient(160deg,#160c22ee,#08040cee);border:1px solid #ffffff1a;transition:.18s;display:flex;flex-direction:column;gap:6px}
@@ -3955,16 +3961,29 @@ const DEFAULT_SAVE = () => ({
 let SAVE = DEFAULT_SAVE();
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) SAVE = Object.assign(DEFAULT_SAVE(), s, { total: Object.assign(DEFAULT_SAVE().total, s.total || {}), settings: Object.assign(DEFAULT_SAVE().settings, s.settings || {}) }); } catch (e) { }
+  prog(); paintDiff();
   if (!SAVE.contracts.length) refillContracts();
 }
 function saveGame() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(SAVE)); } catch (e) { } }
 
 const DIFFS = [
-  { name: 'EASY', ko: '쉬움', haz: 0.55, warn: 1.5, dmg: 0.45, rescue: 2, lvl: 100, col: 30, rise: 60, spin: 100, conv: 120, score: 0.8 },
-  { name: 'NORMAL', ko: '보통', haz: 0.8, warn: 1.2, dmg: 0.75, rescue: 1, lvl: 70, col: 18, rise: 40, spin: 70, conv: 90, score: 1 },
-  { name: 'HARD', ko: '어려움', haz: 1.05, warn: 1.0, dmg: 1.0, rescue: 0, lvl: 45, col: 8, rise: 25, spin: 45, conv: 70, score: 1.35 },
+  { name: 'EASY', ko: '쉬움', cc: '#4dff9a', haz: 0.55, warn: 1.5, dmg: 0.45, rescue: 2, lvl: 100, col: 30, rise: 60, spin: 100, conv: 120, score: 0.8 },
+  { name: 'NORMAL', ko: '보통', cc: '#ffb040', haz: 0.8, warn: 1.2, dmg: 0.75, rescue: 1, lvl: 70, col: 18, rise: 40, spin: 70, conv: 90, score: 1 },
+  { name: 'HARD', ko: '어려움', cc: '#ff4d6d', haz: 1.05, warn: 1.0, dmg: 1.0, rescue: 0, lvl: 45, col: 8, rise: 25, spin: 45, conv: 70, score: 1.35 },
 ];
 const DIFF = () => DIFFS[SAVE.settings.diff || 0];
+const dI = () => SAVE.settings.diff || 0;
+// per-difficulty progress: SAVE.unlockedD[d] = highest open course index, SAVE.raceD[d][trackId] = record.
+// Older saves kept a single shared progress; it carries over to EASY only (old indices are remapped by track id).
+function prog(d = dI()) {
+  if (!SAVE.unlockedD) {
+    const oldIds = ['loop', 'old', 'yard', 'grand'], o = Math.min(SAVE.unlocked || 0, 3);
+    SAVE.unlockedD = [Math.max(0, TRACKS.findIndex(t => t.id === oldIds[o])), 0, 0]; SAVE.raceD = [SAVE.race || {}, {}, {}];
+  }
+  SAVE.raceD[d] = SAVE.raceD[d] || {};
+  return { un: SAVE.unlockedD[d] || 0, rec: SAVE.raceD[d] };
+}
+function paintDiff() { document.documentElement.style.setProperty('--dc', DIFF().cc); }
 const SKILLS = [
   // ENGINE
   { id: 'e_top', br: 0, x: 0, y: 0, name: 'TOP END', ko: '최고 속도', max: 5, cost: [120, 220, 380, 600, 900], d: '최고 속도 +4%' },
@@ -4293,7 +4312,7 @@ const HUD = {
   },
   raceInit(race) {
     let e = $('#hRace'); if (!e) { e = el('div', 'h-race'); e.id = 'hRace'; this.root.appendChild(e); }
-    e.innerHTML = `<div class="rp"><b id="rPos">1</b><small id="rPosT">/6</small></div><div class="rl" id="rLap">LAP 1/${race.laps}</div><div class="rt" id="rTime">0:00.0</div><div class="rb" id="rBest">BEST --</div>
+    e.innerHTML = `<div class="rp"><b id="rPos">1</b><small id="rPosT">/6</small></div><div class="rl" id="rLap">LAP 1/${race.laps}</div><div class="rdiff" style="--c:${DIFFS[race.d].cc}">${DIFFS[race.d].name}</div><div class="rt" id="rTime">0:00.0</div><div class="rb" id="rBest">BEST --</div>
       <div class="rpos" id="rPosBig"><b id="rPosN">6</b><span><em>위</em><small id="rPosOf">/ 6</small></span><i id="rPosD"></i></div>
       <div class="rturn" id="rTurn"><i id="rArrow">↑</i><span id="rTurnT">직진</span></div>
       <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rwrong" id="rWrong">역주행!  ↺  돌아가세요</div>`;
@@ -4360,7 +4379,7 @@ const UI = {
   go(where) {
     if (where === 'run') transition(() => startRun());
     else if (where === 'tracks') { if (!SAVE.settings.briefed) { transition(() => this.brief(true)); return; } transition(() => this.tracks()); }
-    else if (where === 'race0') { if (!SAVE.settings.briefed) { transition(() => this.brief(true)); return; } const i = Math.min(SAVE.unlocked || 0, TRACKS.length - 1); transition(() => startRace(GAME.lastTrack !== undefined ? GAME.lastTrack : i)); }
+    else if (where === 'race0') { if (!SAVE.settings.briefed) { transition(() => this.brief(true)); return; } const i = Math.min(prog().un, TRACKS.length - 1); transition(() => startRace(GAME.lastTrack !== undefined && GAME.lastTrack <= i ? GAME.lastTrack : i)); }
     else if (where === 'retry') transition(() => startRace(GAME.lastTrack || 0));
     else if (where === 'nexttrack') transition(() => startRace(Math.min((GAME.lastTrack || 0) + 1, TRACKS.length - 1)));
     else if (where === 'howto') transition(() => this.brief(false));
@@ -4397,7 +4416,7 @@ const UI = {
       </nav>
       <aside class="side">
         <div class="rank"><div class="rk-n">RANK ${SAVE.rank + 1}</div><div class="rk-t">${RANKS[SAVE.rank]}</div><div class="rk-bar"><i style="width:${Math.min(100, SAVE.xp / rankXP(SAVE.rank) * 100)}%"></i></div></div>
-        <div class="diff">${DIFFS.map((d, i) => `<button class="${(SAVE.settings.diff || 0) === i ? 'sel' : ''}" data-d="${i}"><b>${d.ko}</b><small>${d.name}</small></button>`).join('')}</div>
+        <div class="diff">${DIFFS.map((d, i) => `<button class="${(SAVE.settings.diff || 0) === i ? 'sel' : ''}" data-d="${i}" style="--c:${d.cc}"><b>${d.ko}</b><small>${d.name}</small></button>`).join('')}</div>
         <div class="diff-d">${['이변이 드물고 경고가 길어요. 떨어져도 두 번까지 끌어올려 줘요.', '적당히 긴장되는 기본 난이도예요.', '이변이 쉴 새 없이 터져요. 점수 보너스 35%.'][SAVE.settings.diff || 0]}</div>
         <div class="kv"><span>SHARDS</span><b>◆ ${fmt(SAVE.shards)}</b></div>
         <div class="kv"><span>BEST</span><b>${fmt(SAVE.best)}</b></div>
@@ -4408,29 +4427,31 @@ const UI = {
       <div class="car-tag"><small>${spec.tag}</small><b>${spec.name}</b></div>
       <div class="keys tkeys"><span>왼쪽 화면을 끌어 조향 · 오른쪽 버튼으로 가속, 드리프트, 부스트 · 공중에서 스틱으로 트릭</span></div>
       <div class="keys"><span><b>W A S D</b>주행</span><span><b>SHIFT</b>드리프트</span><span><b>SPACE</b>부스트</span><span><b>공중 W A S D Q E</b>트릭</span><span><b>R</b>복귀</span><span><b>C</b>시점</span><span><b>ESC</b>일시정지</span><span><b>ENTER</b>바로 출격</span></div>`);
-    this.root.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { AUDIO.ui(1); SAVE.settings.diff = +b.dataset.d; saveGame(); this.title(); });
+    this.root.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { AUDIO.ui(1); SAVE.settings.diff = +b.dataset.d; saveGame(); paintDiff(); this.title(); });
   },
   tracks() {
-    GAME.state = 'tracks'; const un = SAVE.unlocked || 0; SAVE.race = SAVE.race || {};
+    GAME.state = 'tracks'; paintDiff(); const { un, rec: recs } = prog();
     this.screen('tracks', `
-      <div class="g-head"><div class="g-t">SELECT COURSE</div><div class="g-s">난이도 ${DIFF().ko}</div></div>
-      <div class="trk">${TRACKS.map((t, i) => { const rt = t._rt || (t._rt = buildRoute(t)); const rec = SAVE.race[t.id]; const lock = i > un; return `<button class="tcard ${lock ? 'lock' : ''}" data-t="${i}">
+      <div class="g-head"><div class="g-t">SELECT COURSE</div><div class="dtabs">${DIFFS.map((d, i) => `<button class="${dI() === i ? 'sel' : ''}" data-td="${i}" style="--c:${d.cc}"><b>${d.ko}</b><small>${prog(i).un + 1}/${TRACKS.length}</small></button>`).join('')}</div></div>
+      <div class="trk">${TRACKS.map((t, i) => { const rt = t._rt || (t._rt = buildRoute(t)); const rec = recs[t.id]; const lock = i > un; return `<button class="tcard ${lock ? 'lock' : ''}" data-t="${i}">
         <canvas width="160" height="160" data-map="${i}"></canvas>
         <div class="tn">${String(i + 1).padStart(2, '0')}</div><b>${t.name}</b><small>${t.ko}</small>
-        <p>${lock ? '이전 코스에서 3위 안에 들면 열려요' : t.desc}</p>
+        <p>${lock ? `${DIFF().ko} 난이도에서 이전 코스를 3위 안에 들어 완주하면 열립니다.` : t.desc}</p>
+        <div class="medals">${DIFFS.map((d, k) => { const r = (SAVE.raceD[k] || {})[t.id]; return `<i style="--c:${d.cc}" class="${r ? (r.pos <= 3 ? 'm' : 'r') : ''}" title="${d.ko}">${r ? r.pos : ''}</i>`; }).join('')}</div>
         <div class="tm"><span>${(rt.L / 1000).toFixed(1)}km × ${t.laps}바퀴</span><span>${rec ? `최고 ${rec.pos}위 · ${fmtT(rec.time)}` : '기록 없음'}</span></div></button>`; }).join('')}</div>
       <button class="back" data-go="title">◂ BACK</button>`);
     this.root.querySelectorAll('canvas[data-map]').forEach(cv => { const rt = TRACKS[+cv.dataset.map]._rt; const c = cv.getContext('2d'); const xs = rt.pts.map(p => p[0]), zs = rt.pts.map(p => p[1]); const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs); const k = 130 / Math.max(x1 - x0, z1 - z0); c.lineWidth = 6; c.lineJoin = 'round'; c.strokeStyle = '#7fdcff'; c.shadowColor = '#7fdcff'; c.shadowBlur = 10; c.beginPath(); rt.pts.forEach((p, i) => { const X = 80 + (p[0] - (x0 + x1) / 2) * k, Y = 80 - (p[1] - (z0 + z1) / 2) * k; i ? c.lineTo(X, Y) : c.moveTo(X, Y); }); c.closePath(); c.stroke(); const s = rt.pts[0]; c.fillStyle = '#fff'; c.shadowBlur = 0; c.fillRect(80 + (s[0] - (x0 + x1) / 2) * k - 5, 80 - (s[1] - (z0 + z1) / 2) * k - 5, 10, 10); });
+    this.root.querySelectorAll('[data-td]').forEach(b => b.onclick = () => { AUDIO.ui(1); SAVE.settings.diff = +b.dataset.td; saveGame(); this.tracks(); });
     this.root.querySelectorAll('.tcard').forEach(b => b.onclick = () => { const i = +b.dataset.t; if (i > un) { AUDIO.uiDeny(); b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); return; } AUDIO.ui(1); GAME.lastTrack = i; transition(() => startRace(i)); });
   },
   raceResults(o) {
     const { race, pos, list } = o; GAME.lastTrack = race.ti;
     const ord = n => n + (n === 1 ? 'ST' : n === 2 ? 'ND' : n === 3 ? 'RD' : 'TH');
     this.screen('results', `
-      <div class="r-head"><div class="r-t">${pos === 1 ? 'WINNER' : ord(pos) + ' PLACE'}</div><div class="r-s">${race.tr.name} · ${fmtT(race.finishT)} · 최고 랩 ${fmtT(race.best || race.finishT)}${o.newBest ? ' · 코스 최고 기록!' : ''}</div></div>
+      <div class="r-head"><div class="r-t">${pos === 1 ? 'WINNER' : ord(pos) + ' PLACE'}</div><div class="r-s"><em class="dchip" style="--c:${DIFFS[race.d].cc}">${DIFFS[race.d].ko}</em> ${race.tr.name} · ${fmtT(race.finishT)} · 최고 랩 ${fmtT(race.best || race.finishT)}${o.newBest ? ' · 코스 최고 기록!' : ''}</div></div>
       <div class="r-table">${list.map((e, i) => `<div class="${e.me ? 'me' : ''}"><span>${i + 1}</span><b>${e.me ? 'YOU · ' + carSpec(SAVE.car).name : e.name}</b></div>`).join('')}</div>
       <div class="r-earn"><div><span>순위 보상</span><b>◆ ${o.reward}</b></div><div><span>코스 보너스</span><b>◆ ${o.trackBonus}</b></div><div><span>주운 샤드</span><b>◆ ${GAME.run.shards}</b></div>${o.done.map(c => `<div class="cdone"><span>계약 완료 · ${contractText(c)}</span><b>◆ ${c.r}</b></div>`).join('')}<div class="tot"><span>합계</span><b>◆ ${fmt(o.earned + o.cBonus)}</b></div></div>
-      ${o.unlockedNew ? `<div class="r-rank">새 코스 열림 · <b>${TRACKS[race.ti + 1].name}</b></div>` : pos > 3 ? '<div class="r-rank">3위 안에 들면 다음 코스가 열려요</div>' : ''}
+      ${o.unlockedNew ? `<div class="r-rank">${DIFFS[race.d].ko} 난이도 새 코스 개방 · <b>${TRACKS[race.ti + 1].name}</b></div>` : pos > 3 && race.ti + 1 < TRACKS.length ? `<div class="r-rank">3위 안에 들어야 ${DIFFS[race.d].ko} 난이도의 다음 코스가 열립니다.</div>` : ''}
       ${o.ups ? `<div class="r-log">RANK UP · ${RANKS[SAVE.rank]}</div>` : ''}
       <nav class="menu row">${o.unlockedNew || (pos <= 3 && race.ti + 1 < TRACKS.length) ? '<button data-go="nexttrack" class="primary"><span>NEXT COURSE</span><small>다음 코스</small></button>' : ''}<button data-go="retry" class="${o.unlockedNew ? '' : 'primary'}"><span>RETRY</span><small>다시 달리기</small></button><button data-go="tree"><span>SKILL TREE</span><small>강화</small></button><button data-go="tracks"><span>COURSES</span><small>코스 선택</small></button><button data-go="title"><span>MENU</span><small>메뉴</small></button></nav>`);
   },
@@ -4838,7 +4859,10 @@ const TRACKS = [
   { id: 'loop', name: 'MERIDIAN LOOP', ko: '메리디안 순환로', start: [17, 14], moves: 'E3 N4 W2 N2 W3 S3 W2 S3 E4', laps: 3, fx: ['loop', 'cork', 'arch', 'twist', 'helix'], desc: '입문 코스. 루프 한 번, 코크스크루, 교차한 빌딩 아래를 지나요.' },
   { id: 'old', name: 'OLD TOWN SWITCHBACK', ko: '구도심 갈지자', start: [14, 22], moves: 'E2 N1 E2 N2 W1 N1 W3 S2 W1 S1 E1 S1', laps: 3, fx: ['twist', 'arch', 'invert', 'roll2', 'cork'], desc: '노면이 기울고 비틀리는 코너가 쉴 새 없이 이어져요. 뒤집힌 채 달리는 구간도 있어요.' },
   { id: 'yard', name: 'CONTAINER YARD', ko: '컨테이너 야드', start: [13, 6], moves: 'E6 N2 W2 N2 W3 S2 W1 S2', laps: 3, fx: ['helix', 'loop', 'invert', 'cork', 'arch'], desc: '긴 직선마다 나선 회전, 루프, 천장 주행이 기다려요.' },
+  { id: 'harbor', name: 'HARBOR SPIRAL', ko: '항만 나선로', start: [20, 4], moves: 'E6 N3 W2 N3 W3 S2 W1 S4', laps: 3, fx: ['helix', 'roll2', 'loop', 'invert', 'arch'], desc: '부두를 따라 크게 감아 도는 나선 코스입니다. 연속 롤 구간에서는 속도를 조금 줄이는 편이 좋습니다.' },
+  { id: 'mirror', name: 'MIRROR SPIRE', ko: '거울 첨탑', start: [4, 20], moves: 'E5 N2 E2 N3 W4 S1 W3 S4', laps: 3, fx: ['invert', 'cork', 'twist', 'loop', 'arch', 'roll2'], desc: '첨탑 사이를 뒤집힌 채로 통과하는 구간이 많습니다. 천장 주행이 자주 나옵니다.' },
   { id: 'grand', name: 'MÖBIUS GRAND', ko: '뫼비우스 그랑프리', start: [10, 10], moves: 'E12 N4 W4 N4 W4 N4 W4 S12', laps: 2, fx: ['loop', 'helix', 'cork', 'invert', 'roll2', 'arch', 'twist'], desc: '모든 뒤틀림이 다 나오는 최종 코스. 도시를 크게 한 바퀴 돌아요.' },
+  { id: 'zenith', name: 'ZENITH CIRCUIT', ko: '천정 서킷', start: [12, 26], moves: 'E8 S6 W3 N2 W3 S5 W2 N9', laps: 2, fx: ['loop', 'cork', 'invert', 'helix', 'roll2', 'twist', 'arch'], desc: '가장 길고 험한 마지막 코스입니다. 모든 뒤틀림이 쉬지 않고 이어지므로 끝까지 집중해야 합니다.' },
 ];
 const DIRV = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
 const RT_CODE = (dx, dz) => dx > 0 ? 1 : dx < 0 ? 2 : dz > 0 ? 3 : 4;
@@ -5042,7 +5066,7 @@ function startRace(ti) {
   GAME.car.rib = { rb: rt, u: -30, x: -4.5, psi: 0, vT: 0, vS: 0, hint: -1 };
   const sf = ribPose(GAME.car, 0);
   GAME.run = new Run(spec); GAME.run.countdown = 3.6; GAME.run.rescues = 99;
-  GAME.race = { ti, tr, rt, laps: tr.laps, lap: 0, sLap: -14, total: -14, hint: 0, t: 0, lapT: 0, best: 0, ai: rt.rib ? makeRivalsRib(rt, S) : makeRivals(rt), finished: [], hzNext: 4, off: 0, wrong: 0, started: false, countdown: 3.6, lastSafe: -31 };
+  GAME.race = { d: dI(), ti, tr, rt, laps: tr.laps, lap: 0, sLap: -14, total: -14, hint: 0, t: 0, lapT: 0, best: 0, ai: rt.rib ? makeRivalsRib(rt, S) : makeRivals(rt), finished: [], hzNext: 4, off: 0, wrong: 0, started: false, countdown: 3.6, lastSafe: -31 };
   GAME.race.sLap = GAME.race.total = -30;
   for (const k in PRESSED) PRESSED[k] = false;
   GAME.state = 'run'; GAME.camPos = vadd(vmadd(GAME.car.pos, sf.T, -25), vscale(sf.N, 14)); GAME.camUp = sf.N; GAME.race.base = base; GAME.race.vprof = ribProfile(rt, S.top);
@@ -5113,11 +5137,12 @@ function raceResults() {
   const trackBonus = race.ti * 40;
   const earned = R.shards + reward + trackBonus;
   const key = race.tr.id;
-  SAVE.race = SAVE.race || {}; const rec = SAVE.race[key] || {};
+  const recs = prog(race.d).rec; const rec = recs[key] || {};
   const newBest = !rec.time || race.t < rec.time;
   if (newBest) rec.time = race.t; if (!rec.pos || pos < rec.pos) rec.pos = pos; if (!rec.lap || race.best < rec.lap) rec.lap = race.best;
-  SAVE.race[key] = rec;
-  if (pos <= 3) SAVE.unlocked = Math.max(SAVE.unlocked || 0, race.ti + 1);
+  recs[key] = rec;
+  const wasUn = SAVE.unlockedD[race.d] || 0;
+  if (pos <= 3) SAVE.unlockedD[race.d] = Math.min(TRACKS.length - 1, Math.max(wasUn, race.ti + 1));
   // contracts
   R.stat.time = race.t; R.stat.dist = race.sLap;
   const done = []; for (const c of SAVE.contracts) if ((R.stat[c.k] || 0) >= c.n) done.push(c);
@@ -5127,7 +5152,7 @@ function raceResults() {
   const ups = addXP(Math.floor(reward * 2 + R.score / 20)); const logs = checkLogs(); saveGame();
   GAME.state = 'results'; HUD.show(false); document.body.classList.remove('race'); markRoute(race.rt, false); removeTrack(GAME.track); GAME.track = null; AUDIO.setMusic(true, 'title');
   const list = racePositions(race);
-  UI.raceResults({ race, pos, reward, trackBonus, earned, done, cBonus, newBest, ups, logs, list, unlockedNew: pos <= 3 && race.ti + 1 < TRACKS.length && (SAVE.unlocked === race.ti + 1) });
+  UI.raceResults({ race, pos, reward, trackBonus, earned, done, cBonus, newBest, ups, logs, list, unlockedNew: SAVE.unlockedD[race.d] > wasUn });
   GAME.race = null; setupDemo();
 }
 
