@@ -650,10 +650,8 @@ void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float c
   float dy=wv*6.*sin(WVL(340.)+uTime*1.1), sx=ws*5.*sin(WVL(450.)-uTime*0.8);
   // far from the player the whole ribbon billows like cloth and settles as you approach (smooth along the road)
   float du=mod(cum-uPU,uRibL); float ff=du<uRibL*0.5?smoothstep(260.,750.,du):smoothstep(150.,450.,uRibL-du);
-  roll+=ff*1.3*sin(WVL(520.)+uTime*0.55);
-  float lift=ff*(55.+35.*sin(WVL(900.)+uTime*0.35));
-  vec3 far=vec3(ff*ff*55.*sin(WVL(700.)-uTime*0.4),lift,ff*ff*55.*cos(WVL(820.)+uTime*0.3)); // world-fixed directions: smooth through loops and rolls
-  P+=vec3(S.x,0.,S.z)*sx+N*dy+far;
+  roll+=ff*wv*1.3*sin(WVL(520.)+uTime*0.55); // far away the ribbon only twists about its own line: it never moves into another part of the course
+  P+=vec3(S.x,0.,S.z)*sx+N*dy;
   float cr=cos(roll), sr=sin(roll); vec3 N2=N*cr-S*sr; S=S*cr+N*sr; N=N2;
 }
 ${BEND_GLSL}
@@ -3417,7 +3415,6 @@ function renderFrame(time, scene) {
     const pre = m4(); pre[5] = -1; pre[13] = RND.flipH;
     gl.uniformMatrix4fv(u.uPre, false, pre); gl.uniform1f(u.uFlipFade, RND.flipFade);
     for (const v of vis) if (v.d > 200) drawMesh(v.ch.mesh, IDENT, 1, v.off);
-    if (GAME.race && GAME.race.rt.rib) ribDraw(GAME.race.rt); // the mirrored skyway hangs in the sky too
     gl.uniformMatrix4fv(u.uPre, false, IDENT); gl.uniform1f(u.uFlipFade, 0);
   }
   // decals (skids, shadow, glows)
@@ -5210,7 +5207,7 @@ function buildRibbon(tr, rt) {
       const dir = R() < 0.5 ? 1 : -1;
       featK.push({ k: kc - half, type });
       if (type === 'loop') {
-        const LS = RW + 3; // entry and exit lanes of the loop must not overlap
+        const LS = RW + 6; // entry and exit lanes of the loop stay well apart (the loop's descending tail passes beside the entry lane)
         for (let k = kc - 45; k < kc; k++) W[k] = -LS * ease3((k - (kc - 45)) / 45);
         for (let k = kc; k < kc + 45; k++) W[k] = LS * (1 - ease3((k - kc) / 45));
         ins[kc] = { type, R: 26, LS };
@@ -5437,9 +5434,8 @@ function ribFrame(rb, u, st) {
       let roll = wv * (0.34 * Math.sin(ph(260) - tm * 1.3) + 0.22 * Math.sin(ph(610) + tm * 0.7));
       const dy = wv * 6 * Math.sin(ph(340) + tm * 1.1); let sx = ws * 5 * Math.sin(ph(450) - tm * 0.8);
       // far field: the ribbon billows and settles as the player approaches (same as ribLive)
-      roll += ff * 1.3 * Math.sin(ph(520) + tm * 0.55);
-      const lift = ff * (55 + 35 * Math.sin(ph(900) + tm * 0.35)), fx = ff * ff * 55 * Math.sin(ph(700) - tm * 0.4), fz = ff * ff * 55 * Math.cos(ph(820) + tm * 0.3);
-      Pd = vadd(vadd(P, [S[0] * sx + fx, lift, S[2] * sx + fz]), vscale(Nn, dy)); // near sway stays horizontal so banked decks don't sink
+      roll += ff * wv * 1.3 * Math.sin(ph(520) + tm * 0.55); // far away: twist only, the centreline stays put (no crossing other parts)
+      Pd = vadd(vadd(P, [S[0] * sx, 0, S[2] * sx]), vscale(Nn, dy)); // near sway stays horizontal so banked decks don't sink
       const cr = Math.cos(roll), sr = Math.sin(roll), N2 = vsub(vscale(Nn, cr), vscale(S, sr)); S = vadd(vscale(S, cr), vscale(Nn, sr)); Nn = N2;
     }
   }
