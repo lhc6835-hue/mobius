@@ -659,6 +659,8 @@ void ribLive(int i, out vec3 P, out vec3 N, out vec3 S, out vec3 Tt, out float c
 ${BEND_GLSL}
 const float WK=6.28318531/3840.;
 ${FOLD_GLSL}
+vec3 warpHG(vec2 q){ float a=WK*2.*q.x+0.7, b=WK*q.y+0.3, c=WK*(3.*q.x+2.*q.y)+2.1, e=WK*(-q.x+4.*q.y)+1.3; vec3 f=foldHG(q);
+  return uWarpA*vec3(70.*sin(a)*cos(b)+35.*sin(c)+25.*sin(e)+f.x, WK*(140.*cos(a)*cos(b)+105.*cos(c)-25.*cos(e))+f.y, WK*(-70.*sin(a)*sin(b)+70.*cos(c)+100.*cos(e))+f.z); }
 float warpH(vec2 q){ return uWarpA*(70.*sin(WK*2.*q.x+0.7)*cos(WK*q.y+0.3)+35.*sin(WK*(3.*q.x+2.*q.y)+2.1)+25.*sin(WK*(-q.x+4.*q.y)+1.3)+foldHG(q).x); }
 vec2 warpG(vec2 q){ float a=WK*2.*q.x+0.7, b=WK*q.y+0.3, c=WK*(3.*q.x+2.*q.y)+2.1, e=WK*(-q.x+4.*q.y)+1.3;
   return uWarpA*(WK*vec2(140.*cos(a)*cos(b)+105.*cos(c)-25.*cos(e), -70.*sin(a)*sin(b)+70.*cos(c)+100.*cos(e))+foldHG(q).yz); }
@@ -702,14 +704,15 @@ void main(){
     if(b.x>0.5) p=vec3(0.,-1e5,0.);
     if(b.w>0.5){ int mt=int(aCol.a*255.+.5); if(uInst==1 || (mt!=1 && mt!=6 && mt!=7 && !(mt==9 && aPos.y<0.2))) p=vec3(0.,-1e5,0.); }
   }
+  float baseH=0.; // terrain height under an object's base (reused by the rise-in below)
   if(uWarpA!=0. && uTiled==1 && ext.x>=0.){
     int mt=int(aCol.a*255.+.5);
-    if(uInst==0 && (mt==1||mt==6||mt==7||(mt==9&&aPos.y<0.2))){ vec2 g=warpG(p.xz); p.y+=warpH(p.xz); n=normalize(vec3(n.x-g.x*n.y, n.y, n.z-g.y*n.y)); }
+    if(uInst==0 && (mt==1||mt==6||mt==7||(mt==9&&aPos.y<0.2))){ vec3 hg=warpHG(p.xz); p.y+=hg.x; n=normalize(vec3(n.x-hg.y*n.y, n.y, n.z-hg.z*n.y)); }
     else {
-      vec2 c=uInst==1?vec2(iR0.w,iR2.w):ext.zw; vec2 g=warpG(c); vec3 nn=normalize(vec3(-g.x,1.,-g.y));
+      vec2 c=uInst==1?vec2(iR0.w,iR2.w):ext.zw; vec3 hg=warpHG(c); baseH=hg.x; vec2 g=hg.yz; vec3 nn=normalize(vec3(-g.x,1.,-g.y));
       vec3 d=vec3(p.x-c.x,p.y,p.z-c.y); vec3 ax=vec3(nn.z,0.,-nn.x); float sn=length(ax);
       if(sn>1e-5){ ax/=sn; float co=nn.y; d=d*co+cross(ax,d)*sn+ax*dot(ax,d)*(1.-co); n=n*co+cross(ax,n)*sn+ax*dot(ax,n)*(1.-co); }
-      p=vec3(c.x,warpH(c),c.y)+d;
+      p=vec3(c.x,baseH,c.y)+d;
     }
   }
   // draw-distance edge: each building / prop / ground tile rises out of the ground on its own (staggered) instead of whole chunks popping
@@ -723,7 +726,7 @@ void main(){
     else if(k<1.){
       float kk=k*k*(3.-2.*k); int mt=int(aCol.a*255.+.5);
       if(uInst==0 && (mt==1||mt==6||mt==7||(mt==9&&aPos.y<0.2))) p.y-=(1.-kk)*35.;
-      else { float b0=uWarpA!=0.?warpH(c):0.; p.y=b0+(p.y-b0)*mix(0.12,1.,kk)-(1.-kk)*60.; }
+      else { float b0=baseH; p.y=b0+(p.y-b0)*mix(0.12,1.,kk)-(1.-kk)*60.; }
     }
   }
   p+=uOffset;
@@ -1886,10 +1889,12 @@ function genCity() {
   // ---------- instanced props, sorted by chunk ----------
   for (const type in PL) {
     const list = PL[type]; if (!list.length) continue;
-    list.sort((a, b) => a.ch - b.ch);
-    const data = new Float32Array(list.length * ISTRIDE); const ranges = new Int32Array(NC * NC * 2);
+    const SUB = CS * T / 4; // 80 m prop cells: 4x4 per chunk, so props are culled much finer than whole chunks
+    for (const p of list) p.sub = Math.min(3, Math.floor((p.z % (CS * T)) / SUB)) * 4 + Math.min(3, Math.floor((p.x % (CS * T)) / SUB));
+    list.sort((a, b) => a.ch - b.ch || a.sub - b.sub);
+    const data = new Float32Array(list.length * ISTRIDE); const ranges = new Int32Array(NC * NC * 16 * 2);
     list.forEach((p, i) => { p.inst = i; writeInst(data, i, qaxis([0, 1, 0], p.ry), [p.x, p.y, p.z], [1, 1, 1], [p.ix, p.iz, 0, 0]); });
-    for (let i = 0; i < list.length; i++) { const c = list[i].ch; if (ranges[c * 2 + 1] === 0) ranges[c * 2] = i; ranges[c * 2 + 1]++; }
+    for (let i = 0; i < list.length; i++) { const c = list[i].ch * 16 + list[i].sub; if (ranges[c * 2 + 1] === 0) ranges[c * 2] = i; ranges[c * 2 + 1]++; }
     const def = PROP_DEFS[type];
     let mesh;
     if (def.car !== undefined) { const sp = Object.assign({}, CARS[def.car], { color: def.col, headStyle: 'slit' }); mesh = buildWreck(sp); }
@@ -3066,7 +3071,8 @@ const DIRECTOR = {
     this.ambNext -= dt;
     if (this.ambNext <= 0) {
       this.ambNext = active ? rnd(0.45, 1.0) / Math.min(2, 0.7 + L * 0.3) : rnd(0.35, 0.8);
-      const a = rnd(0, TAU), d = rnd(480, 1000);
+      const a = rnd(0, TAU), d = rnd(480, Math.max(480, Math.min(1000, RND.viewDist * 1.05)));
+      if (RND.viewDist < 500) { /* nothing far off is visible on the lowest preset */ } else {
       const ax = car.pos[0] + Math.cos(a) * d, az = car.pos[2] + Math.sin(a) * d;
       let lr = lotAt(ax, az); if (lr && rectNoAnom(lr)) lr = null;
       // keep region slots free for gameplay hazards near the player
@@ -3076,6 +3082,7 @@ const DIRECTOR = {
         if (r < 0.5) ANOM.push(new Fold(lr, pick(['N', 'S', 'E', 'W', 'MX', 'MZ']), rnd(1.2, 3.1) * (Math.random() < 0.5 ? -1 : 1), { warn: 0.5, rise: 2.4, hold: rnd(6, 14), ret: 2.5, lift: rnd(20, 160), amb: true }));
         else if (r < 0.75) ANOM.push(new Twist(lr, rnd(-5, 5)));
         else ANOM.push(new Rise(rectTiles(lr), 40, 180, { warn: 0.3, hold: rnd(5, 10), sink: Math.random() < 0.35 }));
+      }
       }
     }
     if (!active) return;
@@ -3327,8 +3334,14 @@ function visibleChunks(viewDist) {
     const dx = wrapD(ch.center[0] - wrapW(cx)), dz = wrapD(ch.center[2] - wrapW(cz));
     const d = Math.hypot(dx, dz);
     if (d > viewDist + half) continue;
-    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2 && !(GQ().back && RND.bend > 0.05 && d > 430)) continue;
-    out.push({ ch, off: [cx + dx - ch.center[0], 0, cz + dz - ch.center[2]], d });
+    const curlKeep = GQ().back && RND.bend > 0.05 && d > 430; // far chunks behind / beside stay for the sky curl (buildings only)
+    let back = false;
+    if (d > half * 1.5 && (dx * fx + dz * fz) / fl < -half * 1.2) { if (!curlKeep) continue; back = true; }
+    if (!back && d > half * 1.6 && fl > 0.35) { // outside the view wedge (half-FOV + margin), measured to the chunk's near edge
+      const ca = ((dx * fx + dz * fz) / fl) / d, cosW = Math.cos(Math.min(PI * 0.92, Math.atan(Math.tan(RND.fov * PI / 360) * RND.W / RND.H) + 0.35 + Math.asin(Math.min(1, half * 1.42 / d))));
+      if (ca < cosW) { if (!curlKeep) continue; back = true; }
+    }
+    out.push({ ch, off: [cx + dx - ch.center[0], 0, cz + dz - ch.center[2]], d, back });
   }
   return out;
 }
@@ -3365,13 +3378,23 @@ function renderFrame(time, scene) {
   gl.uniform1i(u.uInst, 1); gl.uniform1i(u.uTiled, 1);
   if (!RND.dbgNoWorld) for (const type in CITY.propTypes) {
     const pt = CITY.propTypes[type]; gl.bindVertexArray(pt.mesh.vao);
-    const pd = type === 'lamp' || type.startsWith('cont') || type === 'tlight' ? RND.viewDist : RND.viewDist * GQ().prop;
-    gl.uniform1f(u.uRevD, revD(pd));
+    const q = GQ(), pd = RND.viewDist * (type === 'lamp' || type.startsWith('cont') || type === 'tlight' ? q.lampF : type.startsWith('tree') ? q.tree : q.prop);
+    const cullR = pd + q.pmargin + 57, SUB = CS * T / 4; // 57 m = half diagonal of an 80 m cell
+    gl.uniform1f(u.uRevD, Math.max(10, Math.min(pd * 1.08, (cullR - 102) / 0.86))); // the rise-in finishes before a cell is dropped
     for (const v of vis) {
-      if (v.d > pd + CS * T * 0.75) continue;
-      const ci = v.ch.cz * NC + v.ch.cx; const st = pt.ranges[ci * 2], cnt = pt.ranges[ci * 2 + 1]; if (!cnt) continue;
-      gl.uniform3fv(u.uOffset, v.off); instOffset(pt.mesh, st);
-      gl.drawElementsInstanced(gl.TRIANGLES, pt.mesh.count, gl.UNSIGNED_INT, 0, cnt);
+      if (v.back || v.d > cullR + 230) continue; // props on sky-curl-only chunks are invisible specks
+      const ci = v.ch.cz * NC + v.ch.cx, ox = v.ch.cx * CS * T + v.off[0] - RND.cam[0], oz = v.ch.cz * CS * T + v.off[2] - RND.cam[2];
+      let set = false;
+      for (let r = 0; r < 4; r++) { // one draw per run of near cells in a row (instances of a row are contiguous)
+        let c0 = -1, c1 = -1;
+        for (let c = 0; c < 4; c++) { const dx = ox + (c + 0.5) * SUB, dz = oz + (r + 0.5) * SUB; if (dx * dx + dz * dz <= cullR * cullR) { if (c0 < 0) c0 = c; c1 = c; } }
+        if (c0 < 0) continue;
+        const k0 = ci * 16 + r * 4 + c0; let st = -1, cnt = 0;
+        for (let k = k0; k <= ci * 16 + r * 4 + c1; k++) { const n = pt.ranges[k * 2 + 1]; if (n) { if (st < 0) st = pt.ranges[k * 2]; cnt += n; } }
+        if (!cnt) continue;
+        if (!set) { gl.uniform3fv(u.uOffset, v.off); set = true; }
+        instOffset(pt.mesh, st); gl.drawElementsInstanced(gl.TRIANGLES, pt.mesh.count, gl.UNSIGNED_INT, 0, cnt);
+      }
     }
   }
   gl.uniform1i(u.uInst, 0); gl.uniform1f(u.uRevD, revD(RND.viewDist));
@@ -3861,8 +3884,10 @@ const SCENE = {
     // echoes
     for (const e of GAME.echoes) if (e.pos) drawCar(car.spec, m4qps(m4(), e.q, e.pos), time * 20, 0, [1.8, 0.35, 1.7]);
     // traffic
+    const tMax = GQ().traffic;
     for (const t of TRAFFIC) {
       const im = imageOf(t.x, t.z, RND.cam[0], RND.cam[2]);
+      if (Math.hypot(im[0] - RND.cam[0], im[1] - RND.cam[2]) > tMax) continue;
       const mesh = CITY.propTypes['wreck' + t.kind].mesh;
       drawMesh(mesh, m4qps(m4(), t.q, [im[0], t.y, im[1]]), 0);
     }
@@ -4536,11 +4561,11 @@ const UI = {
 };
 // graphics presets: bloom 0 off / 1 light / 2 full; flip = upside-down sky city pass; back = far chunks behind the camera (curled overhead)
 const GFX = [
-  { id: 'potato', ko: 'POTATO · 최저', scale: 0.45, dpr: 1, view: 450, prop: 0.35, bloom: 0, flip: 0, back: 0, lights: 0, parts: 700, shards: 15 },
-  { id: 'low', ko: 'LOW · 낮음', scale: 0.6, dpr: 1, view: 650, prop: 0.45, bloom: 1, flip: 0, back: 0, lights: 4, parts: 1500, shards: 30 },
-  { id: 'medium', ko: 'MEDIUM · 보통', scale: 0.8, dpr: 1.25, view: 900, prop: 0.5, bloom: 2, flip: 1, back: 1, lights: 8, parts: 3000, shards: 50 },
-  { id: 'high', ko: 'HIGH · 높음', scale: 1, dpr: 1.5, view: 1200, prop: 0.55, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
-  { id: 'ultra', ko: 'ULTRA · 최고', scale: 1, dpr: 2, view: 1650, prop: 0.75, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
+  { id: 'potato', ko: 'POTATO · 최저', scale: 0.45, dpr: 1, view: 450, prop: 0.3, lampF: 0.4, tree: 0.18, pmargin: 0, traffic: 200, bloom: 0, flip: 0, back: 0, lights: 0, parts: 700, shards: 15 },
+  { id: 'low', ko: 'LOW · 낮음', scale: 0.6, dpr: 1, view: 650, prop: 0.4, lampF: 0.55, tree: 0.25, pmargin: 0, traffic: 260, bloom: 1, flip: 0, back: 0, lights: 4, parts: 1500, shards: 30 },
+  { id: 'medium', ko: 'MEDIUM · 보통', scale: 0.8, dpr: 1.25, view: 900, prop: 0.45, lampF: 0.55, tree: 0.3, pmargin: 60, traffic: 400, bloom: 2, flip: 1, back: 1, lights: 8, parts: 3000, shards: 50 },
+  { id: 'high', ko: 'HIGH · 높음', scale: 1, dpr: 1.5, view: 1200, prop: 0.5, lampF: 0.7, tree: 0.4, pmargin: 120, traffic: 520, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
+  { id: 'ultra', ko: 'ULTRA · 최고', scale: 1, dpr: 2, view: 1650, prop: 0.6, lampF: 0.85, tree: 0.5, pmargin: 200, traffic: 520, bloom: 2, flip: 1, back: 1, lights: 12, parts: 6000, shards: 70 },
 ];
 const GQ = () => RND.gfx || GFX[3];
 function applyQuality() {
