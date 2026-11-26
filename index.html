@@ -209,7 +209,11 @@ body.touch .h-warn{top:20vh;font-size:13px}
 .scr.tracks .tcard{border-top:3px solid var(--dc,#7fdcff)}.scr.tracks .tcard:hover{border-color:var(--dc,#7fdcff)}
 .medals{display:flex;gap:5px}.medals i{width:18px;height:18px;border-radius:50%;border:2px solid var(--c);opacity:.35;font:900 11px/14px var(--fd);text-align:center;font-style:normal;color:#14051a}.medals i.r{opacity:.8}.medals i.m{opacity:1;background:var(--c)}
 .dchip{font-style:normal;font:800 .8em var(--fh);padding:1px 8px;border:1px solid var(--c);color:var(--c);margin-right:4px}
-.h-race .rdiff{position:absolute;left:3vw;top:calc(3vh + 28px);font:800 11px var(--fd);letter-spacing:.14em;color:var(--c);border-left:3px solid var(--c);padding-left:6px}
+.rgim{position:absolute;left:50%;top:calc(3vh + 64px);transform:translate(-50%,-8px);width:min(440px,86vw);padding:10px 16px;background:#0b0612e6;border-left:4px solid var(--c);opacity:0;transition:opacity .35s,transform .35s;display:flex;flex-direction:column;gap:2px}
+.rgim.on{opacity:1;transform:translate(-50%,0)}.rgim small{font:700 11px var(--fh);letter-spacing:.12em;color:#ffffff88}.rgim b{font:800 18px var(--fk);color:var(--c)}.rgim span{font:500 14px/1.45 var(--fk);color:#eee}
+.rgs{position:absolute;left:50%;top:calc(3vh + 56px);transform:translateX(-50%);padding:4px 14px;border:1px solid var(--c);color:var(--c);background:#0b0612cc;font:800 14px var(--fk);letter-spacing:.06em;border-radius:20px;opacity:0;transition:opacity .2s}.rgs.on{opacity:1}
+body.touch .rgim{top:calc(1vh + 48px);width:min(360px,80vw)}body.touch .rgim span{font-size:12px}body.touch .rgs{top:calc(1vh + 44px)}
+.h-race .rdiff{position:absolute;left:3vw;top:calc(3vh - 15px);font:800 11px var(--fd);letter-spacing:.14em;color:var(--c);border-left:3px solid var(--c);padding-left:6px}
 .diff-d{font-size:12px;color:#d8c8ee;line-height:1.5;margin-bottom:8px}
 #ui.brief{background:radial-gradient(ellipse at center,#0a0510cc,#000000ee)}
 .cards{position:absolute;left:4vw;right:4vw;top:16vh;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
@@ -2630,7 +2634,8 @@ class Car {
   }
   // driving glued to the SKYWAY ribbon: physics in track space (u along, x across, psi = heading vs tangent)
   ribStep(dt, ev, ctl, steerIn, thr, brk, boostKey, topEff) {
-    const S = this.S, spec = this.spec.stats, st = this.rib, top = S.top;
+    const S = this.S, spec = this.spec.stats, st = this.rib, top = S.top, gr = GAME.race;
+    if (gr && gr.mirror) steerIn = -steerIn; // mirror zone: left is right
     const fr0 = st.fr || ribFrame(st.rb, st.u, st);
     { const dth = fr0.kg * st.vT * dt, c = Math.cos(dth), s = Math.sin(dth); const vT = st.vT * c + st.vS * s, vS = -st.vT * s + st.vS * c; st.vT = vT; st.vS = vS; st.psi -= dth; }
     let vf = Math.cos(st.psi) * st.vT + Math.sin(st.psi) * st.vS, vs = -Math.sin(st.psi) * st.vT + Math.cos(st.psi) * st.vS;
@@ -2665,7 +2670,8 @@ class Car {
     st.vT = Math.cos(st.psi) * vf - Math.sin(st.psi) * vs; st.vS = Math.sin(st.psi) * vf + Math.cos(st.psi) * vs;
     // magnetic deck: only part of gravity pulls along / across it
     st.vT -= G * fr0.T[1] * 0.5 * dt; st.vS -= G * fr0.S[1] * 0.3 * dt;
-    st.u += st.vT * dt; st.x += st.vS * dt;
+    if (gr && gr.wind) st.vS += gr.wind * 7.5 * dt; // crosswind
+    const u0 = st.u; st.u += st.vT * dt; st.x += st.vS * dt;
     const lim = RW - 1.3;
     if (Math.abs(st.x) > lim) {
       const sg = Math.sign(st.x); st.x = sg * lim; const vo = st.vS * sg;
@@ -2676,6 +2682,7 @@ class Car {
         if (vo > 8) ev('wall', { impact: vo, n: n3 });
       }
     }
+    gimCar(this, st, u0, ev);
     ribPose(this, dt);
     vf = Math.cos(st.psi) * st.vT + Math.sin(st.psi) * st.vS;
     this.grounded = true; this.air = 0; this.acc = [0, 0, 0]; this.flying = false; this.boosting = !!boostKey;
@@ -3898,7 +3905,7 @@ const SCENE = {
     if (GAME.race && GATE) {
       const race = GAME.race, rt = race.rt, u = RND.world.u;
       if (rt.rib) {
-        ribDraw(rt);
+        ribDraw(rt); drawGimmicks(race, time);
         const sm = ((race.sLap % rt.L) + rt.L) % rt.L; let nextI = -1, bd = 1e9;
         rt.gates.forEach((g, i) => { if (g.start) return; let d = g.u - sm; if (d < 0) d += rt.L; if (d < bd) { bd = d; nextI = i; } });
         rt.gates.forEach((g, i) => { gl.uniform3fv(u.uTint, g.start ? [1.3, 1.3, 1.3] : i === nextI ? [0.4, 1.6, 1.9] : [0.35, 0.3, 0.45]); let gd = g.u - sm; if (gd < 0) gd += rt.L; if (gd > 380 && gd < rt.L - 130) return; const M = ribGateM(rt, g.u); drawMesh(GATE, M, 0); if (g.start) drawMesh(GATE.check, M, 0); });
@@ -4315,7 +4322,7 @@ const HUD = {
     e.innerHTML = `<div class="rp"><b id="rPos">1</b><small id="rPosT">/6</small></div><div class="rl" id="rLap">LAP 1/${race.laps}</div><div class="rdiff" style="--c:${DIFFS[race.d].cc}">${DIFFS[race.d].name}</div><div class="rt" id="rTime">0:00.0</div><div class="rb" id="rBest">BEST --</div>
       <div class="rpos" id="rPosBig"><b id="rPosN">6</b><span><em>위</em><small id="rPosOf">/ 6</small></span><i id="rPosD"></i></div>
       <div class="rturn" id="rTurn"><i id="rArrow">↑</i><span id="rTurnT">직진</span></div>
-      <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rwrong" id="rWrong">역주행!  ↺  돌아가세요</div>`;
+      <div class="rbar"><div class="rbar-in" id="rBar"></div></div><div class="rgim" id="rGim"></div><div class="rgs" id="rGs"></div><div class="rwrong" id="rWrong">역주행!  ↺  돌아가세요</div>`;
     let tg = $('#hTags'); if (!tg) { tg = el('div', 'h-tags'); tg.id = 'hTags'; this.root.appendChild(tg); }
     tg.innerHTML = race.ai.map((a, i) => `<div class="tag" id="tag${i}">${a.name}</div>`).join('');
   },
@@ -4350,6 +4357,16 @@ const HUD = {
       const pos = list.findIndex(x => x.a === a) + 1;
       t.style.opacity = 1; t.style.transform = `translate(${(cx / cw * 0.5 + 0.5) * W}px,${(0.5 - cy / cw * 0.5) * H}px) translate(-50%,-100%)`; t.textContent = `${pos} · ${a.name}`;
     });
+  },
+  gimIntro(k) {
+    const e = $('#rGim'), I = GIM_INFO[k]; if (!e) return; clearTimeout(this.gimT);
+    e.style.setProperty('--c', I.c); e.innerHTML = `<small>처음 보는 장치</small><b>${I.ko}</b><span>${I.d}</span>`;
+    e.classList.remove('on'); void e.offsetWidth; e.classList.add('on'); this.gimT = setTimeout(() => e.classList.remove('on'), 5200);
+  },
+  gimState(k) {
+    const e = $('#rGs'); if (!e || e.dataset.k === (k || '')) return; e.dataset.k = k || '';
+    if (!k) { e.classList.remove('on'); return; }
+    e.style.setProperty('--c', GIM_INFO[k].c); e.textContent = k === 'mirror' ? '↔ 조향 반전' : '≋ 횡풍'; e.classList.add('on');
   },
   wrong(on) { const w = $('#rWrong'); if (w) w.classList.toggle('on', on); },
   shard(n) { $('#hShard').textContent = n; },
@@ -4753,7 +4770,7 @@ function runFrame(dt, sdt) {
   const sp01 = clamp(car.speed / S.top, 0, 1.4);
   const calm = camMode() === 'comfort' ? 0.35 : 1;
   P.speed = damp(P.speed, (sp01 * 0.3 + (car.boosting ? 0.3 : 0) + (car.turbo > 0 ? 0.25 : 0) + (car.overdrive > 0 ? 0.4 : 0)) * calm, 6, dt);
-  P.ca = (0.25 + P.speed * 0.5 + (conv ? 0.4 : 0)) * (calm < 1 ? 0.5 : 1);
+  P.ca = (0.25 + P.speed * 0.5 + (conv ? 0.4 : 0)) * (calm < 1 ? 0.5 : 1) + (race && race.mirror ? 0.9 : 0);
   P.focus = [0.5, 0.56];
   carFX(sdt);
   updateCamera(dt, 'run');
@@ -5059,7 +5076,7 @@ function startRace(ti) {
   if (!GATE) buildGate();
   const base = tr._rt || (tr._rt = buildRoute(tr));
   const rt = tr._rb || (tr._rb = buildRibbon(tr, base));
-  WARP.a = 0; markRoute(rt, true);
+  WARP.a = 0; markRoute(rt, true); if (rt.rib) rt.gims = buildGimmicks(rt);
   if (GAME.track) { removeTrack(GAME.track); GAME.track = null; }
   GAME.car.setup(spec, S);
   GAME.car.reset([0, 0, 0], 0);
@@ -5484,6 +5501,144 @@ function ribDraw(rb) {
   drawMesh(rb.mesh, IDENT, 0); gl.uniform1i(u.uRibOn, 0);
 }
 function ribGateM(rb, u) { const fr = ribFrame(rb, u); return m4qps(m4(), qfromBasis(fr.S, fr.N, fr.T), fr.P); }
+// ================= RACE GIMMICKS (track space): boost pads, shutter walls, mirror zones, crosswinds =================
+const GIM_INFO = {
+  pad: { ko: '가속 패드', c: '#ffb040', d: '노면의 주황색 화살표를 밟으면 잠시 동안 속도가 크게 오릅니다.' },
+  wall: { ko: '개폐 장벽', c: '#ff4d6d', d: '장벽 세 칸이 번갈아 솟아오릅니다. 초록색으로 열린 칸을 골라 지나가세요.' },
+  mirror: { ko: '거울 구간', c: '#c07bff', d: '보라색 문 사이에서는 좌우 조향이 반대로 바뀝니다. 핸들을 평소와 반대로 꺾으세요.' },
+  wind: { ko: '차원 횡풍', c: '#7fdcff', d: '옆바람이 차를 한쪽으로 밀어냅니다. 바닥 화살표의 반대쪽으로 조향해서 버티세요.' },
+};
+const GIM_LEN = { pad: 10, wall: 3, mirror: 170, wind: 140 };
+const WALL_X = [-7, 0, 7], WALL_W = 6.4, WALL_D = 3, WALL_H = 3.2, WALL_P = 3.0, WSEQ = [0, 2, 1, 2, 0, 1];
+// spots between the twisted sections, laid out the same way every time for a course
+function buildGimmicks(rb) {
+  const tr = rb.tr, L = rb.L, order = tr.gm || ['pad', 'wall', 'wind', 'pad', 'mirror', 'wall', 'pad'];
+  let seed = 7; for (const ch of tr.id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rr = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const busy = rb.feats.map(f => [f.u - 45, f.u + RIB_NEED[f.type] + 45]);
+  const free = (a, b) => busy.every(([x, y]) => b < x || a > y);
+  const corner = (a, b) => rb.cornerS.some(c => c > a - 35 && c < b + 35);
+  const out = []; let k = 0;
+  for (let u = 170; u < L - 130; u += 5) {
+    const type = order[k % order.length], len = GIM_LEN[type];
+    if (!free(u, u + len) || (type !== 'mirror' && type !== 'wind' && corner(u, u + len))) continue;
+    const g = { type, u, len };
+    if (type === 'pad') g.x = (rr() * 2 - 1) * 5.5;
+    if (type === 'wall') { g.ph = rr() * 10; g.h = [1, 1, 1]; g.op = 0; g.nx = 0; g.warn = false; }
+    if (type === 'wind') g.dir = rr() < 0.5 ? -1 : 1;
+    out.push(g); busy.push([u - 10, u + len + 10]); k++; u += len + 120 + rr() * 90;
+  }
+  return out;
+}
+const wallSlot = (g, t) => WSEQ[Math.floor((t + g.ph) / WALL_P) % 6];
+let GIMM = null;
+function buildGimMeshes() {
+  const both = (b, a, c, d, e) => { b.quad(a, c, d, e); b.quad(e, d, c, a); };
+  const pad = new MB(); pad.m = 10; pad.c = [0.14, 0.08, 0.04]; pad.box(-3, 0, 0, 3, 0.16, 10);
+  pad.m = 3; pad.c = [1, 0.55, 0.12];
+  for (const x of [-3.1, 2.8]) pad.box(x, 0, 0, x + 0.3, 0.5, 10); // glowing kerbs, readable from far away
+  for (let k = 0; k < 3; k++) { const z = 1.2 + k * 3, y = 0.2;
+    both(pad, [-2.5, y, z], [-1.5, y, z], [0, y, z + 1.8], [0, y, z + 2.8]); both(pad, [0, y, z + 2.8], [0, y, z + 1.8], [1.5, y, z], [2.5, y, z]); }
+  const wall = new MB(); wall.m = 10; wall.c = [0.1, 0.08, 0.12]; wall.box(-WALL_W / 2, -0.4, -WALL_D / 2, WALL_W / 2, WALL_H, WALL_D / 2);
+  wall.m = 3; wall.c = [1, 1, 1]; wall.fuv = [3.5, 0];
+  for (const [y0, y1] of [[WALL_H - 0.7, WALL_H - 0.35], [0.5, 0.8]]) wall.box(-WALL_W / 2 + 0.2, y0, -WALL_D / 2 - 0.04, WALL_W / 2 - 0.2, y1, WALL_D / 2 + 0.04);
+  wall.box(-WALL_W / 2 + 0.2, WALL_H, -WALL_D / 2 + 0.2, WALL_W / 2 - 0.2, WALL_H + 0.05, WALL_D / 2 - 0.2);
+  wall.fuv = null;
+  const wind = new MB(); wind.m = 3; wind.c = [0.5, 0.9, 1]; wind.fuv = [3, 0];
+  for (let k = 0; k < 3; k++) { const x = -3 + k * 2.6, y = 0.08; both(wind, [x, y, -1.6], [x + 0.8, y, -1.6], [x + 2, y, 0], [x + 1.2, y, 0]); both(wind, [x + 1.2, y, 0], [x + 2, y, 0], [x + 0.8, y, 1.6], [x, y, 1.6]); }
+  wind.fuv = null;
+  GIMM = { pad: pad.upload(), wall: wall.upload(), wind: wind.upload() };
+}
+const gimM = (rb, u, x, y, flip) => { const fr = ribFrame(rb, u); const S = flip ? vscale(fr.S, -1) : fr.S, T = flip ? vscale(fr.T, -1) : fr.T; return m4qps(m4(), qfromBasis(S, fr.N, T), vadd(vmadd(fr.P, fr.S, x), vscale(fr.N, y))); };
+function drawGimmicks(race, time) {
+  const rb = race.rt, gs = rb.gims; if (!gs) return; if (!GIMM) buildGimMeshes();
+  const u = RND.world.u, sm = ((race.sLap % rb.L) + rb.L) % rb.L;
+  for (const g of gs) {
+    let d = g.u - sm; if (d < -g.len - 140) d += rb.L; if (d > 420 || d < -g.len - 140) continue;
+    if (g.type === 'pad') { gl.uniform3fv(u.uTint, [1.6 + 0.5 * Math.sin(time * 8), 1.3, 1]); drawMesh(GIMM.pad, gimM(rb, g.u, g.x, 0), 0); }
+    else if (g.type === 'wall') for (let s = 0; s < 3; s++) {
+      const h = g.h[s], blink = g.warn && s === g.nx;
+      gl.uniform3fv(u.uTint, h < 0.5 ? [0.3, 1.7, 0.6] : blink && Math.sin(time * 30) > 0 ? [1.8, 1.4, 0.3] : [1.8, 0.35, 0.4]);
+      drawMesh(GIMM.wall, gimM(rb, g.u, WALL_X[s], -WALL_H - 0.3 + h * (WALL_H + 0.3)), 0);
+    }
+    else if (g.type === 'mirror') { gl.uniform3fv(u.uTint, [1.3, 0.45, 1.9]); for (const uu of [g.u, g.u + g.len]) drawMesh(GATE, ribGateM(rb, uu), 0); }
+    else if (g.type === 'wind') { gl.uniform3fv(u.uTint, [0.6, 1.4, 1.8]);
+      for (let z = 8; z < g.len - 4; z += 16) { const ph = ((time * 1.4 + z * 0.05) % 1) * 5 - 2.5; for (const x0 of [-6, 2]) drawMesh(GIMM.wind, gimM(rb, g.u + z, (x0 + ph) * g.dir, 0, g.dir < 0), 0); } }
+  }
+  gl.uniform3fv(u.uTint, RND.tint);
+}
+// per-frame: wall timing, which zone the player is in, first-sighting explanations
+function updateGimmicks(dt, race, car) {
+  const rb = race.rt, gs = rb.gims; if (!gs) return;
+  const t = race.t, L = rb.L, um = ((car.rib.u % L) + L) % L;
+  let mir = false, wind = 0;
+  for (const g of gs) {
+    if (g.type === 'wall') {
+      const n = Math.floor((t + g.ph) / WALL_P); g.op = WSEQ[n % 6]; g.nx = WSEQ[(n + 1) % 6]; g.warn = race.started && (n + 1) * WALL_P - (t + g.ph) < 0.9;
+      for (let s = 0; s < 3; s++) g.h[s] = damp(g.h[s], s === g.op ? 0 : 1, s === g.op ? 10 : 5, dt);
+    }
+    const d = g.u - um;
+    if (d > 0 && d < 160 && race.started) gimIntro(g.type);
+    if (d <= 0 && d >= -g.len) { if (g.type === 'mirror') mir = true; if (g.type === 'wind') wind = g.dir * Math.sin(PI * -d / g.len); }
+  }
+  if (mir !== race.mirror) { race.mirror = mir; HUD.gimState(mir ? 'mirror' : null); if (mir) { AUDIO.play('s_force', 0.5, 1.4); RND.post.flash = [0.75, 0.4, 1, 0.35]; } }
+  if (!mir) HUD.gimState(Math.abs(wind) > 0.05 ? 'wind' : null);
+  race.wind = wind;
+}
+function gimIntro(type) {
+  SAVE.seenGim = SAVE.seenGim || {}; if (SAVE.seenGim[type]) return;
+  SAVE.seenGim[type] = 1; saveGame(); HUD.gimIntro(type); AUDIO.play('u_chime2', 0.5, 1.1);
+}
+// a car body (track space: s along, x across, previous s0) against pads and walls. returns { pad, hit, impact }
+function gimTouch(rb, s0, s, x) {
+  const gs = rb.gims; if (!gs) return null; const L = rb.L, lap = Math.floor(s / L), um = s - lap * L, um0 = um - (s - s0);
+  for (const g of gs) {
+    if (g.type === 'pad') { if (um > g.u && um0 < g.u + g.len && Math.abs(x - g.x) < 3.1) return { pad: g, lap }; }
+    else if (g.type === 'wall') {
+      const z0 = g.u - WALL_D / 2 - CAR_L / 2, z1 = g.u + WALL_D / 2 + CAR_L / 2; if (!(um > z0 && um0 < z1)) continue;
+      for (let k = 0; k < 3; k++) {
+        if (g.h[k] < 0.45 || Math.abs(x - WALL_X[k]) > WALL_W / 2 + CAR_W / 2 - 0.15) continue;
+        return um0 <= z0 + 0.4 ? { wall: g, k, back: um - z0 } : { wall: g, k, side: true };
+      }
+    }
+  }
+  return null;
+}
+function gimCar(car, st, u0, ev) {
+  const race = GAME.race; if (!race || !race.rt.gims || !race.started) return;
+  const h = gimTouch(race.rt, u0, st.u, st.x); if (!h) return;
+  if (h.pad) {
+    if (h.pad.hit === h.lap) return; h.pad.hit = h.lap;
+    car.turbo = Math.max(car.turbo, 1.2); st.vT += 9; AUDIO.turbo(3); GAME.shake = Math.max(GAME.shake, 0.25); RND.post.flash = [1, 0.7, 0.3, 0.25];
+    const fr = st.fr || ribFrame(race.rt, st.u); for (let i = 0; i < 24; i++) emit(vadd(car.pos, vscale(fr.N, 0.3)), vadd(vscale(fr.T, st.vT * 0.4), [rnd(-4, 4), rnd(1, 5), rnd(-4, 4)]), [1, 0.65, 0.2], 0.12, 0.5, { drag: 2 });
+  } else if (h.side) {
+    const sg = Math.sign(st.x - WALL_X[h.k]) || 1, nx = WALL_X[h.k] + sg * (WALL_W / 2 + CAR_W / 2);
+    st.x = Math.abs(nx) < RW - 1.3 ? nx : WALL_X[h.k] - sg * (WALL_W / 2 + CAR_W / 2); st.vS = Math.sign(st.x - WALL_X[h.k]) * 5;
+  } else {
+    const fr = st.fr || ribFrame(race.rt, st.u), impact = Math.max(0, st.vT);
+    st.u -= h.back; st.vT = -Math.max(2, impact * 0.18); st.vS += (Math.random() - 0.5) * 6; car.slideT = Math.max(car.slideT || 0, 0.5);
+    if (impact > 6) ev('wall', { impact: impact * 0.8, n: vscale(fr.T, -1) });
+  }
+}
+// rivals: aim for the open slot they will meet, take pads that are on their way, bounce off closed walls
+function gimAim(a, race) {
+  const gs = race.rt.gims; if (!gs) return null; const L = race.rt.L, um = ((a.s % L) + L) % L;
+  for (const g of gs) {
+    const d = g.u - um; if (d < 0 || d > 170) continue;
+    if (g.type === 'wall') { // the slot that stays open around the arrival time; arriving on a switch means lifting off for the next one
+      const t = race.t + d / Math.max(a.v, 10), s1 = wallSlot(g, t - 0.3), s2 = wallSlot(g, t + 0.4);
+      return s1 === s2 ? { x: WALL_X[s1] } : { x: WALL_X[wallSlot(g, t + 1)], slow: d < 80 };
+    }
+    if (g.type === 'pad' && d < 70 && Math.abs(g.x - a.x) < 5) return { x: g.x };
+  }
+  return null;
+}
+function gimHit(a, race, s0) {
+  if (!race.started) return; const h = gimTouch(race.rt, s0, a.s, a.x); if (!h) return;
+  if (h.pad) { if (h.pad['ai' + a.name] !== h.lap) { h.pad['ai' + a.name] = h.lap; a.v += 8; } }
+  else if (h.side) { const sg = Math.sign(a.x - WALL_X[h.k]) || 1; a.x = clamp(WALL_X[h.k] + sg * (WALL_W / 2 + CAR_W / 2), -(RW - 1.4), RW - 1.4); a.vx = sg * 4; }
+  else { a.s -= h.back; a.v = Math.max(4, a.v * 0.3); a.wy = (Math.random() - 0.5) * 3; }
+}
 // ---------- skyway rivals: track-space drivers with a racing line, overtakes, boost, drifts and the odd mistake ----------
 // value of a per-sample array at arc length u (st caches the search index)
 function ribAt(rb, arr, u, st) {
@@ -5588,6 +5743,7 @@ function updateRivalsRib(dt, race, car) {
     if (ahead && a.v > ahead.v - 2 && a.passT <= 0) { a.passX = clamp(ahead.x > 0 ? ahead.x - 5 : ahead.x + 5, -lim, lim); a.passT = 1.6; }
     if (a.passT > 0) xt = a.passX;
     const pdu = a.s - pst.u; if (sty.ag > 0.6 && pdu > 3 && pdu < 22 && race.started) xt = lerp(xt, pst.x, (sty.ag - 0.6) * 1.6); // defend the line
+    const gaim = gimAim(a, race); if (gaim) { xt = lerp(xt, gaim.x, 0.92); if (gaim.slow) a.v = Math.max(12, a.v - 26 * dt); }
     xt = clamp(xt, -lim, lim);
     let ax = clamp((xt - a.x) * 5 - a.vx * 3.2, -16, 16);
     const kh = rb.KG[a.hint] || 0;
@@ -5598,7 +5754,7 @@ function updateRivalsRib(dt, race, car) {
       a.v *= 1 - 1.3 * dt; a.scrapeT -= dt;
       if (a.scrapeT <= 0) { a.scrapeT = 0.08; const fr = ribFrame(rb, a.s, { hint: a.hint }); emit(vadd(vmadd(fr.P, fr.S, a.x + sg * 1.6), vscale(fr.N, 0.5)), vadd(vscale(fr.T, a.v * 0.6), vscale(fr.N, rnd(1, 4))), [1, 0.75, 0.35], 0.09, 0.35, { g: 20, streak: 0.02 }); }
     }
-    a.s += a.v * dt;
+    const s0 = a.s; a.s += a.v * dt; gimHit(a, race, s0);
     // ---- pose: yaw from lateral motion + a drift angle in hard corners, body roll ----
     a.wy = (a.wy || 0) * Math.exp(-2.2 * dt); a.yawOff = damp((a.yawOff || 0) + a.wy * dt, 0, 1.4, dt);
     if (Math.abs(a.yawOff) > 0.3) a.v *= 1 - Math.min(0.9, Math.abs(a.yawOff)) * dt;
@@ -5640,6 +5796,7 @@ function updateRivalsRib(dt, race, car) {
 }
 function updateRaceProgressRib(dt, race, car) {
   const rb = race.rt; if (race.over) return;
+  updateGimmicks(dt, race, car);
   if (race.countdown > 0) { race.countdown -= dt; if (race.countdown <= 0) race.started = true; return; }
   race.t += dt; race.lapT += dt;
   race.sLap = car.rib.u; race.total = race.sLap;
