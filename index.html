@@ -814,13 +814,14 @@ void main(){
     }
   } else if(mat==2){ // facade
     vec2 uv=vUv.xy; float st=floor(vUv.z+0.5); float sd=floor(vUv.w*10.+0.5);
-    vec2 ws = st<0.5? vec2(1.7,3.8) : st<1.5? vec2(3.2,3.6) : st<2.5? vec2(2.2,3.1) : vec2(7.,3.8);
+    vec2 ws = st<0.5? vec2(1.7,3.8) : st<1.5? vec2(3.2,3.6) : st<2.5? vec2(2.2,3.1) : st<3.5? vec2(7.,3.8) : vec2(3.5,3.);
     vec2 g=uv/ws; vec2 c=floor(g); vec2 f=fract(g);
     float win;
     if(st<0.5) win=step(0.05,f.x)*step(0.07,f.y);
     else if(st<1.5) win=step(0.16,f.x)*step(f.x,0.84)*step(0.22,f.y)*step(f.y,0.86);
     else if(st<2.5) win=step(0.3,f.x)*step(f.x,0.7)*step(0.25,f.y)*step(f.y,0.8);
-    else win=step(0.02,f.x)*step(0.3,f.y)*step(f.y,0.82);
+    else if(st<3.5) win=step(0.02,f.x)*step(0.3,f.y)*step(f.y,0.82);
+    else win=step(0.12,f.x)*step(f.x,0.88)*step(0.12,f.y)*step(f.y,0.78); // apartment: wide balcony windows
     vec2 fw=(abs(dux)+abs(duy))/ws; float lod=smoothstep(0.12,0.5,max(fw.x,fw.y));
     if(uv.y<4.5){ win=step(0.06,fract(uv.x/5.))*step(0.4,uv.y)*step(uv.y,3.9); c=vec2(floor(uv.x/5.),-1.); lod=0.; }
     float r=ih(c,sd);
@@ -844,7 +845,7 @@ void main(){
       emi=wc*lit*(0.35+0.7*ih(c,sd+4.))*1.05*inner; }
     else { rough=0.75; refl=0.06; }
     // distant LOD: average window field to stop shimmering
-    float wf= st<0.5?0.8:st<1.5?0.42:st<2.5?0.2:0.5;
+    float wf= st<0.5?0.8:st<1.5?0.42:st<2.5?0.2:st<3.5?0.5:0.55;
     alb=mix(alb,mix(wallA,vec3(0.03,0.04,0.06),wf),lod);
     emi=mix(emi,mix(vec3(1.,.75,.5),vec3(.6,.8,1.),0.4)*wf*0.42*(0.5+ih(vec2(floor(uv.y/15.),3.),sd)) ,lod);
     rough=mix(rough,mix(0.75,0.3,wf),lod); refl=mix(refl,wf*0.25,lod); spec=mix(spec,0.3,lod);
@@ -1882,8 +1883,18 @@ function genCity() {
       else { rects = subdivide(inner, rndR(R, 2, 4), R, 3); hmin = 30; hmax = 150; styles = [1, 3, 0, 1, 2]; }
       for (const rc of rects) {
         const h = lerp(hmin, hmax, Math.pow(R(), 1.4));
+        const face = streetFace(rc, inner), mn = Math.min(rc[2] - rc[0], rc[3] - rc[1]), r0 = R(), at = k => (CITY.kinds || (CITY.kinds = [])).push([k, (rc[0] + rc[2]) / 2, (rc[1] + rc[3]) / 2, face]);
+        if (dist === 'old') { if (mn < 30 && r0 < 0.32 && buildHouse(mb, rc, face, R, addBox)) { at('house'); continue; } if (r0 < 0.44 && buildStore(mb, rc, face, R, addBox)) { at('store'); continue; } }
+        else if (dist === 'downtown') { if (mn < 32 && r0 < 0.07 && buildStore(mb, rc, face, R, addBox)) { at('store'); continue; } }
+        else {
+          if (mn < 40 && r0 < 0.13 && buildStore(mb, rc, face, R, addBox)) { at('store'); continue; }
+          if (r0 < 0.45 && buildApartment(mb, rc, h, face, R, addBox)) { at('apt'); continue; }
+          if (r0 < 0.53 && buildParking(mb, rc, face, R, addBox)) { at('park'); continue; }
+        }
         buildBuilding(mb, rc, h, styles[Math.floor(R() * styles.length)], R, addBox, dist);
       }
+      // pedestrian overpass over the road east of this lot (never across a folding street)
+      if (bx < NB - 1 && !FOLD_COL.has((bx + 1) * P) && R() < 0.16) { buildOverpass(mb, X1, Z0 + 2 * T, addBox); (CITY.kinds || (CITY.kinds = [])).push(['bridge', X1 + T / 2, Z0 + 2 * T, 0]); }
       // parked wrecks on the sidewalk edge
       if (R() < 0.25) addProp(pick(['wreck0', 'wreck1', 'wreck2']), X0 + 10 + R() * 70, Z0 + 3.2, PI / 2 + (R() - .5) * 0.3);
       if (R() < 0.15) { const zz = Z1 - 3; addProp('barrier', cx - 3, zz, 0); addProp('barrier', cx + 0.2, zz, 0.1); addProp('cone', cx + 3, zz + 1, 0); addProp('cone', cx + 4.5, zz + 0.5, 0); }
@@ -2014,6 +2025,134 @@ function buildBuilding(mb, rc, h, style, R, addBox, dist) {
       mb.m = 0; mb.c = [0.02, 0.02, 0.03]; mb.box(ax - 8, top + 11, bz0 + 2.31, ax + 8, top + 11.6, bz0 + 2.33); mb.box(ax - 5, top + 13, bz0 + 2.31, ax + 5, top + 14.5, bz0 + 2.33);
     }
   }
+  mb.e = [-1, -1, 0, 0];
+}
+// ---------- building variety: convenience stores, apartment slabs, gable-roof houses, open parking decks ----------
+// local frame for a lot rect: u runs along the street-facing side, v goes from that side into the lot, so the same
+// builder works whichever street the rect faces. Boxes stay axis aligned (90 degree turns only).
+function lotFrame(rc, face) {
+  const [x0, z0, x1, z1] = rc;
+  const W = face < 2 ? z1 - z0 : x1 - x0, D = face < 2 ? x1 - x0 : z1 - z0;
+  const P = (u, v) => face === 0 ? [x0 + v, z0 + u] : face === 1 ? [x1 - v, z0 + u] : face === 2 ? [x0 + u, z0 + v] : [x0 + u, z1 - v];
+  const box = (mb, u0, y0, v0, u1, y1, v1, o) => { const a = P(u0, v0), b = P(u1, v1); mb.box(Math.min(a[0], b[0]), y0, Math.min(a[1], b[1]), Math.max(a[0], b[0]), y1, Math.max(a[1], b[1]), o); };
+  // one quad (culling is off), wound so its normal points along `out` given in local (u, y, v)
+  const quad = (mb, a, b, c, d, out) => {
+    const w = q => { const p = P(q[0], q[2]); return [p[0], q[1], p[1]]; }; const A = w(a), B = w(b), C = w(c), D = w(d);
+    const o0 = P(0, 0), ou = P(1, 0), ov = P(0, 1), ow = [(ou[0] - o0[0]) * out[0] + (ov[0] - o0[0]) * out[2], out[1], (ou[1] - o0[1]) * out[0] + (ov[1] - o0[1]) * out[2]];
+    if (vdot(vcross(vsub(B, A), vsub(C, A)), ow) >= 0) mb.quad(A, B, C, D); else mb.quad(D, C, B, A);
+  };
+  return { W, D, P, box, quad };
+}
+// which side of the rect is closest to the lot edge (= faces the street)
+function streetFace(rc, inner) {
+  const g = [rc[0] - inner[0], inner[2] - rc[2], rc[1] - inner[1], inner[3] - rc[3]];
+  let f = 0; for (let k = 1; k < 4; k++) if (g[k] < g[f]) f = k; return f;
+}
+const BRAND = [[[0.1, 0.75, 0.35], [0.2, 0.45, 1], [1, 0.45, 0.1]], [[1, 0.35, 0.15], [1, 0.85, 0.2], [0.95, 0.95, 0.95]], [[0.25, 0.4, 1], [0.95, 0.95, 0.95], [1, 0.25, 0.45]], [[0.6, 0.25, 0.9], [0.3, 0.9, 0.9], [0.95, 0.95, 0.95]]];
+function buildStore(mb, rc, face, R, addBox) {
+  const F = lotFrame(rc, face), W = F.W, D0 = F.D; if (W < 9 || D0 < 9) return false;
+  const D = Math.min(D0, 16), H = 4.8 + R() * 1.2, br = pick(BRAND);
+  const ctr = F.P(W / 2, D / 2); mb.e = [Math.floor(ctr[0] / T), Math.floor(ctr[1] / T), ctr[0], ctr[1]];
+  mb.m = 0; mb.c = pick([[0.82, 0.82, 0.8], [0.7, 0.72, 0.75], [0.85, 0.8, 0.72]]); F.box(mb, 0, -8, 0, W, H, D);
+  mb.c = [0.2, 0.2, 0.22]; F.box(mb, -0.15, H, -0.15, W + 0.15, H + 0.6, D + 0.15, { top: false }); // parapet band
+  // brand stripes wrapping the front and the first metres of the sides
+  mb.m = 3; mb.fuv = [4, 0];
+  for (let k = 0; k < 3; k++) { mb.c = br[k]; const y0 = H - 1.3 + k * 0.4; F.box(mb, -0.12, y0, -0.12, W + 0.12, y0 + 0.36, Math.min(D, 6)); }
+  // lit shop window with mullions, a door and a small entrance canopy
+  mb.c = [1, 0.95, 0.85]; mb.fuv = [2.4, 0]; F.box(mb, 0.8, 0.35, -0.06, W - 0.8, H - 1.55, 0.02);
+  mb.fuv = null; mb.m = 10; mb.c = [0.12, 0.12, 0.13];
+  for (let u = 0.8; u <= W - 0.7; u += 2.4) F.box(mb, u - 0.07, 0.3, -0.12, u + 0.07, H - 1.5, 0);
+  const du = W * (0.3 + R() * 0.4); F.box(mb, du - 1, 0, -0.14, du + 1, 2.4, -0.04); F.box(mb, du - 1.6, 2.8, -1.4, du + 1.6, 2.95, 0);
+  // rooftop: AC units and a signboard
+  mb.c = [0.55, 0.56, 0.58]; for (let k = 0; k < 2; k++) { const u = W * (0.25 + k * 0.45); F.box(mb, u - 0.8, H, D * 0.5, u + 0.8, H + 1.1, D * 0.5 + 1.2); }
+  mb.m = 3; mb.c = br[0]; mb.fuv = [3, 0]; F.box(mb, W * 0.25, H + 0.6, 0.3, W * 0.75, H + 2.2, 0.55); mb.fuv = null;
+  { const a = F.P(0, 0), b = F.P(W, D); addBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), -20, H + 0.6, mb.e[0], mb.e[1], 1); }
+  // deep rect: a small car park behind/next to it with painted bays and a pole sign
+  if (D0 > 26) {
+    mb.m = 0; mb.c = [0.11, 0.11, 0.12]; F.box(mb, 0, 0.16, D + 1, W, 0.2, D0);
+    mb.m = 3; mb.c = [0.9, 0.9, 0.85]; mb.fuv = [5, 0]; for (let u = 2; u < W - 1; u += 2.8) F.box(mb, u, 0.2, D + 2, u + 0.12, 0.22, D + 7);
+    mb.fuv = null; mb.m = 10; mb.c = [0.3, 0.3, 0.32]; F.box(mb, W - 1.2, 0, D + 1.6, W - 0.9, 7.5, D + 1.9);
+    mb.m = 3; mb.c = br[0]; mb.fuv = [3, 0]; F.box(mb, W - 2.4, 5.6, D + 1.55, W + 0.3, 7.8, D + 1.95); mb.fuv = null;
+  }
+  mb.e = [-1, -1, 0, 0]; return true;
+}
+function buildApartment(mb, rc, h, face, R, addBox) {
+  const F = lotFrame(rc, face), W = F.W, D = Math.min(F.D, 16 + R() * 4); if (W < 14 || D < 10) return false;
+  const fl = 3, nF = Math.max(6, Math.min(25, Math.floor(h / fl))), H = nF * fl + 1.2;
+  const ctr = F.P(W / 2, D / 2); mb.e = [Math.floor(ctr[0] / T), Math.floor(ctr[1] / T), ctr[0], ctr[1]];
+  const wall = pick([[0.86, 0.84, 0.8], [0.8, 0.82, 0.86], [0.88, 0.82, 0.74], [0.78, 0.8, 0.76]]);
+  mb.m = 2; mb.c = wall; mb.uz = 4; mb.uw = R() * 50; F.box(mb, 0, -8, 1.4, W, H, D - 1.4, { facade: true, top: false, uy0: -8 }); mb.uz = 0; mb.uw = 0;
+  mb.m = 0; mb.c = [0.2, 0.2, 0.21]; F.box(mb, 0, H - 0.01, 1.4, W, H, D - 1.4, { sides: false });
+  // balcony bands on both long faces, one ledge per floor, with glass rails and unit partitions
+  const unit = W / Math.max(2, Math.round(W / 7));
+  for (const [v0, v1, s] of [[0, 1.4, -1], [D - 1.4, D, 1]]) {
+    // flat pieces only (slab top + lip + glass rail) to keep the triangle count down
+    const ve = s < 0 ? v0 : v1;
+    for (let f = 1; f <= nF; f++) {
+      const y = f * fl; mb.m = 0; mb.c = wall.map(c => c * 0.92);
+      F.quad(mb, [0, y, v0], [W, y, v0], [W, y, v1], [0, y, v1], [0, 1, 0]); F.quad(mb, [0, y - 0.3, ve], [W, y - 0.3, ve], [W, y, ve], [0, y, ve], [0, 0, s]);
+      mb.m = 5; mb.c = [1, 1, 1]; F.quad(mb, [0.2, y, ve], [W - 0.2, y, ve], [W - 0.2, y + 1.05, ve], [0.2, y + 1.05, ve], [0, 0, s]);
+    }
+    mb.m = 0; mb.c = wall.map(c => c * 0.85); for (let u = 0; u <= W + 0.01; u += unit) F.box(mb, u - 0.15, fl, v0, u + 0.15, H, v1, { top: false });
+  }
+  // stair/lift core, water tank, lit block sign on the short face, pilotis band
+  mb.m = 0; mb.c = wall.map(c => c * 0.8); F.box(mb, W * 0.4, H, D * 0.35, W * 0.6, H + 3.4, D * 0.65);
+  mb.m = 10; mb.c = [0.35, 0.36, 0.38]; { const p = F.P(W * 0.8, D / 2); mb.cyl(p[0], H + 1.6, p[1], 1.5, 3.2, 12); }
+  mb.m = 3; mb.c = pick([[0.95, 0.95, 1], [0.4, 0.8, 1], [1, 0.8, 0.4]]); mb.fuv = [3, 0]; F.box(mb, W * 0.38, H + 1.2, D * 0.35 - 0.12, W * 0.62, H + 2.8, D * 0.35); mb.fuv = null;
+  mb.m = 10; mb.c = [0.16, 0.16, 0.17]; F.box(mb, -0.1, -0.5, 1.3, W + 0.1, 2.2, D - 1.3, { top: false });
+  { const a = F.P(0, 0), b = F.P(W, D); addBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), -20, H + 3.4, mb.e[0], mb.e[1], 1); }
+  mb.e = [-1, -1, 0, 0]; return true;
+}
+function buildHouse(mb, rc, face, R, addBox) {
+  const F = lotFrame(rc, face), W = Math.min(F.W, 18), D = Math.min(F.D, 14); if (W < 7 || D < 7) return false;
+  const H = (R() < 0.5 ? 1 : 2) * 3.4 + 0.4, ridge = Math.min(W, D) * 0.35 + 1, o = 0.6;
+  const ctr = F.P(W / 2, D / 2); mb.e = [Math.floor(ctr[0] / T), Math.floor(ctr[1] / T), ctr[0], ctr[1]];
+  mb.m = 2; mb.c = pick(BCOL[2]); mb.uz = 2; mb.uw = R() * 50; F.box(mb, 0, -8, 0, W, H, D, { facade: true, top: false, uy0: -8 }); mb.uz = 0; mb.uw = 0;
+  // gable roof: ridge along u, overhanging eaves, gable ends filled
+  mb.m = 0; mb.c = pick([[0.38, 0.12, 0.1], [0.15, 0.3, 0.32], [0.22, 0.22, 0.25], [0.45, 0.28, 0.14]]);
+  const Y = H, Yr = H + ridge;
+  F.quad(mb, [-o, Y - 0.25, -o], [W + o, Y - 0.25, -o], [W + o, Yr, D / 2], [-o, Yr, D / 2], [0, 1, -1]);
+  F.quad(mb, [-o, Yr, D / 2], [W + o, Yr, D / 2], [W + o, Y - 0.25, D + o], [-o, Y - 0.25, D + o], [0, 1, 1]);
+  mb.c = mb.c.map(c => c * 0.7); for (const u of [0, W]) F.quad(mb, [u, Y, 0], [u, Y, D], [u, Yr - 0.1, D / 2 + 0.02], [u, Yr - 0.1, D / 2 - 0.02], [u ? 1 : -1, 0, 0]);
+  mb.m = 10; mb.c = [0.3, 0.3, 0.32]; F.box(mb, W * 0.7, Yr - ridge * 0.5, D * 0.3, W * 0.7 + 0.7, Yr + 0.8, D * 0.3 + 0.7); // chimney
+  mb.m = 3; mb.c = [1, 0.8, 0.5]; mb.fuv = [2, 0]; F.box(mb, W / 2 - 0.6, 2.4, -0.25, W / 2 + 0.6, 2.7, -0.05); mb.fuv = null; // porch light
+  { const a = F.P(0, 0), b = F.P(W, D); addBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), -20, Yr, mb.e[0], mb.e[1], 1); }
+  mb.e = [-1, -1, 0, 0]; return true;
+}
+function buildParking(mb, rc, face, R, addBox) {
+  const F = lotFrame(rc, face), W = F.W, D = F.D; if (W < 20 || D < 20) return false;
+  const lv = 3 + Math.floor(R() * 3), fh = 3.2, H = lv * fh;
+  const ctr = F.P(W / 2, D / 2); mb.e = [Math.floor(ctr[0] / T), Math.floor(ctr[1] / T), ctr[0], ctr[1]];
+  for (let l = 1; l <= lv; l++) {
+    const y = l * fh; mb.m = 0; mb.c = [0.5, 0.5, 0.52]; F.box(mb, 0, y - 0.4, 0, W, y, D);
+    mb.c = [0.62, 0.62, 0.6]; F.box(mb, 0, y, -0.05, W, y + 1, 0.3, { bottom: false }); F.box(mb, 0, y, D - 0.3, W, y + 1, D + 0.05, { bottom: false });
+    F.box(mb, -0.05, y, 0.3, 0.3, y + 1, D - 0.3, { bottom: false }); F.box(mb, W - 0.3, y, 0.3, W + 0.05, y + 1, D - 0.3, { bottom: false });
+    mb.m = 3; mb.c = [0.9, 0.95, 1]; mb.fuv = [6, 0]; F.box(mb, 1, y - 0.5, 1, W - 1, y - 0.42, 1.3); F.box(mb, 1, y - 0.5, D - 1.3, W - 1, y - 0.42, D - 1); mb.fuv = null;
+  }
+  mb.m = 0; mb.c = [0.45, 0.45, 0.47];
+  for (let u = 0.3; u <= W; u += Math.max(7, (W - 0.6) / Math.round(W / 8))) for (let v = 0.3; v <= D; v += Math.max(7, (D - 0.6) / Math.round(D / 8))) F.box(mb, u - 0.35, -8, v - 0.35, u + 0.35, H, v + 0.35, { top: false, bottom: false });
+  mb.m = 3; mb.c = [0.3, 0.7, 1]; mb.fuv = [3, 0]; F.box(mb, W * 0.35, H + 1, -0.3, W * 0.65, H + 3.2, -0.05); mb.fuv = null; // "P" sign board
+  mb.m = 10; mb.c = [0.25, 0.25, 0.27]; F.box(mb, W * 0.48, H, -0.25, W * 0.52, H + 1, -0.05);
+  { const a = F.P(0, 0), b = F.P(W, D); addBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), -20, H + 1, mb.e[0], mb.e[1], 1); }
+  mb.e = [-1, -1, 0, 0]; return true;
+}
+// pedestrian overpass across the road east of a lot (cars pass under; stairs on both sidewalks)
+function buildOverpass(mb, X1, zc, addBox) {
+  const xr1 = X1 + T, x0 = X1 - 3.4, x1 = xr1 + 3.4, dy = 6.0, ix = Math.floor((X1 + T / 2) / T), iz = Math.floor(zc / T);
+  mb.e = [ix, iz, X1 + T / 2, zc];
+  mb.m = 0; mb.c = [0.55, 0.55, 0.57]; mb.box(x0, dy, zc - 1.6, x1, dy + 0.5, zc + 1.6);
+  mb.c = [0.4, 0.4, 0.42]; mb.box(x0 + 2, dy - 0.7, zc - 1.1, x1 - 2, dy, zc + 1.1);
+  mb.m = 10; mb.c = [0.2, 0.22, 0.25]; for (const s of [-1, 1]) mb.box(x0, dy + 0.5, zc + s * 1.55 - 0.05, x1, dy + 1.6, zc + s * 1.55 + 0.05);
+  mb.m = 3; mb.c = [0.3, 0.85, 1]; mb.fuv = [5, 0]; for (const s of [-1, 1]) mb.box(x0 + 1, dy - 0.05, zc + s * 1.62 - 0.04, x1 - 1, dy + 0.2, zc + s * 1.62 + 0.04); mb.fuv = null;
+  // stairs: 11 solid steps running along +z from the landing, one set per sidewalk, plus posts under the landings
+  for (const [sx0, sx1] of [[x0, X1 - 0.8], [xr1 + 0.8, x1]]) {
+    mb.m = 0; mb.c = [0.58, 0.57, 0.55];
+    for (let k = 0; k < 11; k++) { const z = zc + 1.6 + k * 0.58, h = dy + 0.5 - (k + 1) * (dy + 0.5 - LOTH) / 11; mb.box(sx0, 0, z, sx1, Math.max(LOTH + 0.05, h), z + 0.58); }
+    mb.m = 10; mb.c = [0.2, 0.22, 0.25]; mb.box(sx0 - 0.08, 0, zc + 1.6, sx0, dy + 1.6, zc + 8); mb.box(sx1, 0, zc + 1.6, sx1 + 0.08, dy + 1.6, zc + 8);
+    mb.c = [0.45, 0.45, 0.47]; mb.box((sx0 + sx1) / 2 - 0.4, 0, zc - 0.4, (sx0 + sx1) / 2 + 0.4, dy, zc + 0.4);
+    addBox(sx0, zc - 1.6, sx1, zc + 8, -20, dy + 1.6, ix, iz, 1);
+  }
+  addBox(X1 - 0.8, zc - 1.6, xr1 + 0.8, zc + 1.6, dy - 0.7, dy + 1.6, ix, iz, 1);
   mb.e = [-1, -1, 0, 0];
 }
 function chamferBox(mb, x0, y0, z0, x1, y1, z1, c, uy) {
